@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.env
+
+# Node
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Database
+memory.db
+.axon/
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
