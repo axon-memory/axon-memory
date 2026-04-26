@@ -26,11 +26,21 @@ class AxonMemory:
         if llm_engine:
             self.llm = llm_engine
         else:
-            if os.getenv("GEMINI_API_KEY"):
-                from .llm import GeminiLLM
-                self.llm = GeminiLLM()
-            else:
-                self.llm = None
+            try:
+                # 1. Try Local Ollama LLM
+                from .llm_local import OllamaLLM
+                self.llm = OllamaLLM()
+                logger.info("Initialized Local Ollama LLM")
+            except Exception as e:
+                logger.info(f"Ollama not available ({e}). Falling back to Gemini.")
+                # 2. Fallback to Gemini LLM
+                if os.getenv("GEMINI_API_KEY"):
+                    from .llm import GeminiLLM
+                    self.llm = GeminiLLM()
+                    logger.info("Initialized Gemini LLM")
+                else:
+                    self.llm = None
+                    logger.warning("No LLM configured. Falling back to naive vector similarity.")
 
     def _decay_confidence(self, belief: Belief) -> float:
         """
