@@ -5,13 +5,32 @@ from datetime import datetime, timezone
 from .models import Belief, Conflict, Trace, utc_now
 from .storage import StorageLayer
 from .embeddings import EmbeddingEngine
+from .interfaces import BaseStorageLayer, BaseEmbeddingEngine, BaseLLMEngine
+import os
+from dotenv import load_dotenv
 
+load_dotenv()
 logger = logging.getLogger(__name__)
 
 class AxonMemory:
-    def __init__(self, db_path: str = "~/.axon/memory.db"):
-        self.storage = StorageLayer(db_path=db_path)
-        self.embeddings = EmbeddingEngine()
+    def __init__(
+        self, 
+        db_path: str = "~/.axon/memory.db",
+        storage_engine: Optional[BaseStorageLayer] = None,
+        embedding_engine: Optional[BaseEmbeddingEngine] = None,
+        llm_engine: Optional[BaseLLMEngine] = None
+    ):
+        self.storage = storage_engine if storage_engine else StorageLayer(db_path=db_path)
+        self.embeddings = embedding_engine if embedding_engine else EmbeddingEngine()
+        
+        if llm_engine:
+            self.llm = llm_engine
+        else:
+            if os.getenv("GEMINI_API_KEY"):
+                from .llm import GeminiLLM
+                self.llm = GeminiLLM()
+            else:
+                self.llm = None
 
     def _decay_confidence(self, belief: Belief) -> float:
         """
@@ -42,7 +61,7 @@ class AxonMemory:
         source: Literal["user_explicit", "agent_inferred", "tool_result"] = "user_explicit",
         evidence: Optional[str] = None,
         tags: List[str] = None,
-        confidence: float = 1.0,
+        confidence: Optional[float] = None,
         half_life_hrs: float = 720.0
     ) -> Belief:
         """
@@ -51,16 +70,23 @@ class AxonMemory:
         if tags is None:
             tags = []
 
+        # Evaluate confidence if not explicitly provided
+        if confidence is None:
+            if source == "user_explicit":
+                confidence = 1.0
+            elif self.llm and evidence:
+                logger.info(f"Using LLM to evaluate confidence for '{proposition}'")
+                confidence = self.llm.evaluate_confidence(proposition, evidence)
+            else:
+                confidence = 0.8 # Default for inferred/tool without LLM or evidence
+
         # 1. Embed the proposition
         emb = self.embeddings.embed(proposition)
 
         # 2. Search for existing semantically equivalent beliefs (conflict detection / reinforcement)
-        # We use a naive similarity threshold for v0.1
-        similar_beliefs = self.storage.search_similar(emb, scope=scope, top_k=3)
-        
-        # Thresholds
-        EQUIVALENCE_THRESHOLD = 0.3  # (L2 distance: smaller is more similar. ~0.3 is very close for all-MiniLM)
-        CONFLICT_THRESHOLD = 0.85     # ~0.85 is related enough to flag as potential conflict in v0.1
+        # We use a broad similarity threshold to find potential matches, then evaluate using LLM
+        SEARCH_THRESHOLD = 0.85  # (L2 distance)
+        similar_beliefs = self.storage.search_similar(emb, scope=scope, top_k=5)
         
         new_belief = Belief(
             proposition=proposition,
@@ -77,11 +103,28 @@ class AxonMemory:
         equivalent_belief = None
 
         for sim_belief, dist in similar_beliefs:
-            if dist < EQUIVALENCE_THRESHOLD:
-                equivalent_belief = sim_belief
-                break
-            elif dist < CONFLICT_THRESHOLD:
-                potential_conflicts.append(sim_belief)
+            if dist > SEARCH_THRESHOLD:
+                continue
+
+            if self.llm:
+                logger.info(f"Using LLM to evaluate relationship between '{proposition}' and '{sim_belief.proposition}'")
+                relationship = self.llm.evaluate_relationship(proposition, sim_belief.proposition)
+                
+                if relationship == "EQUIVALENT":
+                    equivalent_belief = sim_belief
+                    break
+                elif relationship == "CONFLICTING":
+                    potential_conflicts.append(sim_belief)
+            else:
+                # Fallback to naive v0.1 logic
+                EQUIVALENCE_THRESHOLD = 0.3
+                CONFLICT_THRESHOLD = 0.85
+                
+                if dist < EQUIVALENCE_THRESHOLD:
+                    equivalent_belief = sim_belief
+                    break
+                elif dist < CONFLICT_THRESHOLD:
+                    potential_conflicts.append(sim_belief)
 
         if equivalent_belief:
             # Reinforce existing belief (Bayesian update approximation)

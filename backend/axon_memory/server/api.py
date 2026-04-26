@@ -23,6 +23,8 @@ class BelieveRequest(BaseModel):
     source_type: str = "user_explicit"
     evidence: Optional[str] = None
     tags: List[str] = []
+    confidence: Optional[float] = None
+    half_life_hrs: float = 720.0
 
 @app.post("/beliefs", response_model=Belief)
 def believe(req: BelieveRequest):
@@ -32,7 +34,9 @@ def believe(req: BelieveRequest):
             scope=req.scope,
             source=req.source_type,  # type: ignore
             evidence=req.evidence,
-            tags=req.tags
+            tags=req.tags,
+            confidence=req.confidence,
+            half_life_hrs=req.half_life_hrs
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
