@@ -25,6 +25,8 @@ class Belief(BaseModel):
     # Explicit edges for the epistemic graph
     derived_from: List[str] = Field(default_factory=list, description="IDs of beliefs this was derived from")
     conflicts_with: List[str] = Field(default_factory=list, description="IDs of beliefs this conflicts with")
+    related_to: List[str] = Field(default_factory=list, description="IDs of related beliefs")
+    hierarchy: List[str] = Field(default_factory=list, description="Theme and Sub-theme")
 
 class Conflict(BaseModel):
     id: str = Field(default_factory=generate_uuid)

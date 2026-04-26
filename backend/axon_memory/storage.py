@@ -42,7 +42,9 @@ class StorageLayer:
                     scope TEXT NOT NULL,
                     status TEXT NOT NULL,
                     derived_from TEXT NOT NULL,
-                    conflicts_with TEXT NOT NULL
+                    conflicts_with TEXT NOT NULL,
+                    related_to TEXT NOT NULL,
+                    hierarchy TEXT NOT NULL
                 )
             """)
 
@@ -91,13 +93,14 @@ class StorageLayer:
                 INSERT OR REPLACE INTO beliefs (
                     id, proposition, confidence, source_type, source_ref, 
                     created_at, updated_at, half_life_hrs, tags, scope, status, 
-                    derived_from, conflicts_with
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    derived_from, conflicts_with, related_to, hierarchy
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 belief.id, belief.proposition, belief.confidence, belief.source_type,
                 belief.source_ref, belief.created_at, belief.updated_at, belief.half_life_hrs,
                 json.dumps(belief.tags), belief.scope, belief.status,
-                json.dumps(belief.derived_from), json.dumps(belief.conflicts_with)
+                json.dumps(belief.derived_from), json.dumps(belief.conflicts_with),
+                json.dumps(belief.related_to), json.dumps(belief.hierarchy)
             ))
 
             # 2. Save to vector table
@@ -170,4 +173,6 @@ class StorageLayer:
         d['tags'] = json.loads(d['tags'])
         d['derived_from'] = json.loads(d['derived_from'])
         d['conflicts_with'] = json.loads(d['conflicts_with'])
+        d['related_to'] = json.loads(d.get('related_to', '[]'))
+        d['hierarchy'] = json.loads(d.get('hierarchy', '[]'))
         return Belief(**d)

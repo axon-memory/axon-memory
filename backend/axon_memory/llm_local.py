@@ -1,5 +1,5 @@
 import logging
-from typing import Literal
+from typing import Literal, List
 from .interfaces import BaseLLMEngine
 
 try:
@@ -10,7 +10,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 class OllamaLLM(BaseLLMEngine):
-    def __init__(self, model_name: str = "llama3"):
+    def __init__(self, model_name: str = "llama3.2:1b"):
         if ollama is None:
             raise ImportError("ollama is not installed. Run `uv add ollama`.")
         
@@ -23,7 +23,7 @@ class OllamaLLM(BaseLLMEngine):
             logger.warning(f"Ollama model '{self.model_name}' not found locally or daemon unreachable.")
             raise RuntimeError(f"Ollama unreachable or model missing: {e}")
 
-    def evaluate_relationship(self, proposition_a: str, proposition_b: str) -> Literal["EQUIVALENT", "CONFLICTING", "UNRELATED"]:
+    def evaluate_relationship(self, proposition_a: str, proposition_b: str) -> Literal["EQUIVALENT", "CONFLICTING", "RELATED", "UNRELATED"]:
         prompt = f"""
         You are an epistemic reasoning engine. Your task is to evaluate the relationship between two beliefs held by an AI agent system.
 
@@ -33,9 +33,10 @@ class OllamaLLM(BaseLLMEngine):
         Determine the relationship between them.
         - EQUIVALENT: The beliefs mean the exact same thing or reinforce each other.
         - CONFLICTING: The beliefs contradict each other directly or semantically.
-        - UNRELATED: The beliefs are about different subjects or do not conflict/reinforce.
+        - RELATED: The beliefs do not conflict and aren't equivalent, but they discuss the same specific subject or are semantically linked.
+        - UNRELATED: The beliefs are about completely different subjects.
 
-        Return EXACTLY one of the following words and nothing else: EQUIVALENT, CONFLICTING, UNRELATED.
+        Return EXACTLY one of the following words and nothing else: EQUIVALENT, CONFLICTING, RELATED, UNRELATED.
         """
         
         try:
@@ -55,6 +56,8 @@ class OllamaLLM(BaseLLMEngine):
                 return "CONFLICTING"
             elif "UNRELATED" in result:
                 return "UNRELATED"
+            elif "RELATED" in result:
+                return "RELATED"
             else:
                 logger.warning(f"Unexpected Ollama output: {result}")
                 return "UNRELATED"
@@ -101,3 +104,33 @@ class OllamaLLM(BaseLLMEngine):
         except Exception as e:
             logger.error(f"Ollama Confidence Evaluation failed: {e}")
             return 0.5
+
+    def generate_hierarchy(self, proposition: str) -> List[str]:
+        prompt = f"""
+        Analyze the following belief and classify it into a general Theme and a specific Sub-theme.
+        Belief: "{proposition}"
+        
+        Return ONLY a comma-separated string in this exact format: Theme, Sub-theme
+        """
+        try:
+            response = ollama.generate(
+                model=self.model_name,
+                prompt=prompt,
+                options={
+                    "temperature": 0.0,
+                    "num_predict": 15
+                }
+            )
+            result = response.get('response', '')
+            if not result:
+                return ["Uncategorized", "General"]
+            result = result.strip()
+            parts = [p.strip() for p in result.split(",")]
+            if len(parts) >= 2:
+                return [parts[0], parts[1]]
+            elif len(parts) == 1:
+                return [parts[0], "General"]
+            return ["Uncategorized", "General"]
+        except Exception as e:
+            logger.error(f"Ollama Hierarchy Evaluation failed: {e}")
+            return ["Uncategorized", "General"]

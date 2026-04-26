@@ -12,6 +12,7 @@ export default function BeliefGraph({ beliefs, conflicts, onNodeClick }) {
       return {
         id: b.id,
         name: b.proposition,
+        hierarchy: b.hierarchy,
         val: b.confidence * 10, // Size based on confidence
         confidence: b.confidence,
         status: b.status,
@@ -38,6 +39,22 @@ export default function BeliefGraph({ beliefs, conflicts, onNodeClick }) {
           }
         });
       }
+
+      // Related links
+      if (b.related_to) {
+        b.related_to.forEach(relId => {
+          // Avoid duplicate links
+          if (relId > b.id && beliefs.find(n => n.id === relId)) {
+            links.push({
+              source: b.id,
+              target: relId,
+              type: 'related',
+              color: 'rgba(255, 255, 255, 0.08)',
+              width: 1
+            });
+          }
+        });
+      }
     });
 
     // Conflict links
@@ -58,7 +75,8 @@ export default function BeliefGraph({ beliefs, conflicts, onNodeClick }) {
   }, [beliefs, conflicts]);
 
   const paintNode = useCallback((node, ctx, globalScale) => {
-    const label = node.name;
+    const hierarchyPrefix = node.hierarchy && node.hierarchy.length > 0 ? `${node.hierarchy[0]} > ` : '';
+    const label = hierarchyPrefix + node.name;
     const fontSize = 12/globalScale;
     ctx.font = `${fontSize}px Inter, sans-serif`;
     

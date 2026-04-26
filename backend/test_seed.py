@@ -43,6 +43,15 @@ def seed():
         tags=["architecture"]
     )
     
+    # 3. A related belief (not conflicting)
+    print("Adding related belief...")
+    axon.believe(
+        proposition="Database connection pool size should be 20",
+        source="agent_inferred",
+        evidence="Observed high latency with default pool size",
+        tags=["performance"]
+    )
+
     print("Database seeded with sample beliefs and conflicts.")
 
 if __name__ == "__main__":

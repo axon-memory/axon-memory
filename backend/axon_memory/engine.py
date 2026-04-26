@@ -93,6 +93,12 @@ class AxonMemory:
         # 1. Embed the proposition
         emb = self.embeddings.embed(proposition)
 
+        # Generate hierarchy
+        hierarchy = ["Uncategorized", "General"]
+        if self.llm:
+            logger.info(f"Using LLM to generate hierarchy for '{proposition}'")
+            hierarchy = self.llm.generate_hierarchy(proposition)
+
         # 2. Search for existing semantically equivalent beliefs (conflict detection / reinforcement)
         # We use a broad similarity threshold to find potential matches, then evaluate using LLM
         SEARCH_THRESHOLD = 0.85  # (L2 distance)
@@ -106,11 +112,13 @@ class AxonMemory:
             half_life_hrs=half_life_hrs,
             tags=tags,
             scope=scope,
-            status="active"
+            status="active",
+            hierarchy=hierarchy
         )
 
         potential_conflicts = []
         equivalent_belief = None
+        related_beliefs = []
 
         for sim_belief, dist in similar_beliefs:
             if dist > SEARCH_THRESHOLD:
@@ -125,16 +133,21 @@ class AxonMemory:
                     break
                 elif relationship == "CONFLICTING":
                     potential_conflicts.append(sim_belief)
+                elif relationship == "RELATED":
+                    related_beliefs.append(sim_belief)
             else:
                 # Fallback to naive v0.1 logic
                 EQUIVALENCE_THRESHOLD = 0.3
                 CONFLICT_THRESHOLD = 0.85
+                RELATED_THRESHOLD = 0.95
                 
                 if dist < EQUIVALENCE_THRESHOLD:
                     equivalent_belief = sim_belief
                     break
                 elif dist < CONFLICT_THRESHOLD:
                     potential_conflicts.append(sim_belief)
+                elif dist < RELATED_THRESHOLD:
+                    related_beliefs.append(sim_belief)
 
         if equivalent_belief:
             # Reinforce existing belief (Bayesian update approximation)
@@ -190,8 +203,20 @@ class AxonMemory:
                 )
                 self.storage.save_trace(trace_c)
             
-            if potential_conflicts:
-                self.storage.save_belief(new_belief, emb) # Update with conflict edges
+            # Register related beliefs
+            for r_belief in related_beliefs:
+                if r_belief.id not in new_belief.related_to:
+                    new_belief.related_to.append(r_belief.id)
+                
+                # Backlink
+                if new_belief.id not in r_belief.related_to:
+                    r_belief.related_to.append(new_belief.id)
+                    # Re-embed for saving
+                    r_emb = self.embeddings.embed(r_belief.proposition)
+                    self.storage.save_belief(r_belief, r_emb)
+
+            if potential_conflicts or related_beliefs:
+                self.storage.save_belief(new_belief, emb) # Update with new edges
 
             return new_belief
 

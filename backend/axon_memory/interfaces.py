@@ -13,13 +13,18 @@ class BaseEmbeddingEngine(ABC):
 
 class BaseLLMEngine(ABC):
     @abstractmethod
-    def evaluate_relationship(self, proposition_a: str, proposition_b: str) -> Literal["EQUIVALENT", "CONFLICTING", "UNRELATED"]:
+    def evaluate_relationship(self, proposition_a: str, proposition_b: str) -> Literal["EQUIVALENT", "CONFLICTING", "RELATED", "UNRELATED"]:
         """Evaluates the semantic relationship between two propositions."""
         pass
 
     @abstractmethod
     def evaluate_confidence(self, proposition: str, evidence: str) -> float:
         """Evaluates confidence (0.0 to 1.0) of a proposition given the evidence."""
+        pass
+
+    @abstractmethod
+    def generate_hierarchy(self, proposition: str) -> List[str]:
+        """Classifies the proposition into a Theme and Sub-theme."""
         pass
 
 class BaseStorageLayer(ABC):
