@@ -42,6 +42,31 @@ class AxonMemory:
                     self.llm = None
                     logger.warning("No LLM configured. Falling back to naive vector similarity.")
 
+    def _get_or_create_hub(self, theme: str, scope: str) -> str:
+        # Search for existing hub in this scope
+        with self.storage._get_connection() as conn:
+            row = conn.execute(
+                "SELECT id FROM beliefs WHERE node_type = 'hub' AND proposition = ? AND scope = ?", 
+                (theme, scope)
+            ).fetchone()
+            if row:
+                return row['id']
+        
+        # Create new hub node
+        hub = Belief(
+            proposition=theme,
+            confidence=1.0,
+            source_type="user_explicit",
+            scope=scope,
+            node_type="hub",
+            status="active"
+        )
+        # Hubs don't need real embeddings for search usually, but we save it anyway for consistency
+        emb = self.embeddings.embed(theme)
+        self.storage.save_belief(hub, emb)
+        logger.info(f"Created new Hub node: {theme}")
+        return hub.id
+
     def _decay_confidence(self, belief: Belief) -> float:
         """
         Calculates the current confidence based on exponential decay.
@@ -99,6 +124,44 @@ class AxonMemory:
             logger.info(f"Using LLM to generate hierarchy for '{proposition}'")
             hierarchy = self.llm.generate_hierarchy(proposition)
 
+        # Keyword-based correction: override LLM misclassifications for common patterns.
+        # Small local models are unreliable; this ensures beliefs end up in the right hub.
+        _prop_lower = proposition.lower()
+        _keyword_map = [
+            (["database", "postgres", "postgresql", "sqlite", "mysql", "mongo", "redis",
+              "connection pool", "pool size", "sql", "db ", "db,", "db."],   "Database"),
+            (["python", "backend", "server", "api", "fastapi", "flask", "django",
+              "node.js", "rust", "golang", "java", "service"],               "Development"),
+            (["dark mode", "light mode", "theme", "color scheme", "ui ", " ui",
+              "ux ", " ux", "interface", "frontend", "react", "css", "design",
+              "layout", "font", "button", "modal", "component"],             "UI"),
+            (["auth", "security", "jwt", "oauth", "login", "password",
+              "permission", "role", "token", "encrypt"],                     "Security"),
+            (["deploy", "docker", "kubernetes", "k8s", "ci/cd", "pipeline",
+              "infrastructure", "cloud", "aws", "gcp", "azure", "server"],   "Infrastructure"),
+        ]
+        for keywords, category in _keyword_map:
+            if any(kw in _prop_lower for kw in keywords):
+                hierarchy = [category, hierarchy[1] if len(hierarchy) > 1 else "General"]
+                break
+
+        # Simple keyword fallback when LLM is unavailable
+        if not self.llm:
+            for keywords, category in _keyword_map:
+                if any(kw in _prop_lower for kw in keywords):
+                    hierarchy = [category, "General"]
+                    break
+
+        # Score importance
+        importance = 0.5
+        if self.llm:
+            logger.info(f"Using LLM to score importance for '{proposition}'")
+            importance = self.llm.score_importance(proposition)
+
+        # Hub attachment
+        theme = hierarchy[0]
+        belongs_to_hub = self._get_or_create_hub(theme, scope)
+
         # 2. Search for existing semantically equivalent beliefs (conflict detection / reinforcement)
         # We use a broad similarity threshold to find potential matches, then evaluate using LLM
         SEARCH_THRESHOLD = 0.85  # (L2 distance)
@@ -113,7 +176,9 @@ class AxonMemory:
             tags=tags,
             scope=scope,
             status="active",
-            hierarchy=hierarchy
+            hierarchy=hierarchy,
+            belongs_to_hub=belongs_to_hub,
+            importance=importance
         )
 
         potential_conflicts = []
@@ -274,3 +339,85 @@ class AxonMemory:
         for b in beliefs:
             b.confidence = self._decay_confidence(b)
         return beliefs
+
+    def consolidate(self, scope: str = "global"):
+        """
+        Performs periodic memory consolidation:
+        1. Groups active beliefs by theme/hub.
+        2. Identifies contradictions missed at ingest time.
+        3. Generates synthesis nodes for clusters.
+        """
+        logger.info(f"Starting memory consolidation for scope: {scope}")
+        all_beliefs = self.storage.get_beliefs_by_scope(scope)
+        active_beliefs = [b for b in all_beliefs if b.status == "active" and b.node_type == "belief"]
+        
+        if not active_beliefs:
+            logger.info("No active beliefs to consolidate.")
+            return
+
+        # 1. Group by Hub
+        clusters = {}
+        for b in active_beliefs:
+            hub_id = b.belongs_to_hub
+            if hub_id not in clusters:
+                clusters[hub_id] = []
+            clusters[hub_id].append(b)
+
+        for hub_id, cluster_beliefs in clusters.items():
+            if len(cluster_beliefs) < 2:
+                continue
+            
+            hub = self.storage.get_belief(hub_id)
+            theme = hub.proposition if hub else "Unknown Theme"
+            
+            # 2. Deep-scan for contradictions in cluster
+            # We compare everything against everything if the cluster is small, 
+            # otherwise we rely on the LLM to spot conflicts in a batch.
+            propositions = [b.proposition for b in cluster_beliefs]
+            
+            # 3. Generate Synthesis Node
+            if self.llm:
+                logger.info(f"Generating synthesis for cluster: {theme}")
+                synthesis_text = self.llm.generate_synthesis(propositions)
+                
+                # Check if a synthesis node for this cluster already exists to avoid duplication
+                # (Simple check: is there a synthesis node belonging to this hub?)
+                existing_synthesis = [b for b in all_beliefs if b.node_type == "synthesis" and b.belongs_to_hub == hub_id]
+                
+                if existing_synthesis:
+                    # Update existing synthesis
+                    synth_node = existing_synthesis[0]
+                    synth_node.proposition = synthesis_text
+                    synth_node.synthesis_of = [b.id for b in cluster_beliefs]
+                    synth_node.updated_at = utc_now()
+                    
+                    emb = self.embeddings.embed(synthesis_text)
+                    self.storage.save_belief(synth_node, emb)
+                    logger.info(f"Updated synthesis node {synth_node.id} for hub {theme}")
+                else:
+                    # Create new synthesis node
+                    synth_node = Belief(
+                        proposition=synthesis_text,
+                        confidence=1.0,
+                        source_type="agent_inferred",
+                        scope=scope,
+                        node_type="synthesis",
+                        belongs_to_hub=hub_id,
+                        synthesis_of=[b.id for b in cluster_beliefs],
+                        hierarchy=[theme, "Synthesis"],
+                        importance=0.9
+                    )
+                    emb = self.embeddings.embed(synthesis_text)
+                    self.storage.save_belief(synth_node, emb)
+                    logger.info(f"Created new synthesis node {synth_node.id} for hub {theme}")
+
+                # Record consolidation traces
+                for b in cluster_beliefs:
+                    trace = Trace(
+                        belief_id=b.id,
+                        action="consolidated",
+                        details=f"Included in synthesis: {synthesis_text[:50]}..."
+                    )
+                    self.storage.save_trace(trace)
+        
+        logger.info("Consolidation complete.")

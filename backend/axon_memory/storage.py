@@ -44,7 +44,11 @@ class StorageLayer:
                     derived_from TEXT NOT NULL,
                     conflicts_with TEXT NOT NULL,
                     related_to TEXT NOT NULL,
-                    hierarchy TEXT NOT NULL
+                    hierarchy TEXT NOT NULL,
+                    node_type TEXT NOT NULL,
+                    belongs_to_hub TEXT,
+                    importance REAL NOT NULL,
+                    synthesis_of TEXT NOT NULL
                 )
             """)
 
@@ -93,14 +97,17 @@ class StorageLayer:
                 INSERT OR REPLACE INTO beliefs (
                     id, proposition, confidence, source_type, source_ref, 
                     created_at, updated_at, half_life_hrs, tags, scope, status, 
-                    derived_from, conflicts_with, related_to, hierarchy
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    derived_from, conflicts_with, related_to, hierarchy,
+                    node_type, belongs_to_hub, importance, synthesis_of
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 belief.id, belief.proposition, belief.confidence, belief.source_type,
                 belief.source_ref, belief.created_at, belief.updated_at, belief.half_life_hrs,
                 json.dumps(belief.tags), belief.scope, belief.status,
                 json.dumps(belief.derived_from), json.dumps(belief.conflicts_with),
-                json.dumps(belief.related_to), json.dumps(belief.hierarchy)
+                json.dumps(belief.related_to), json.dumps(belief.hierarchy),
+                belief.node_type, belief.belongs_to_hub, belief.importance,
+                json.dumps(belief.synthesis_of)
             ))
 
             # 2. Save to vector table
@@ -175,4 +182,8 @@ class StorageLayer:
         d['conflicts_with'] = json.loads(d['conflicts_with'])
         d['related_to'] = json.loads(d.get('related_to', '[]'))
         d['hierarchy'] = json.loads(d.get('hierarchy', '[]'))
+        d['node_type'] = d.get('node_type', 'belief')
+        d['belongs_to_hub'] = d.get('belongs_to_hub')
+        d['importance'] = d.get('importance', 0.5)
+        d['synthesis_of'] = json.loads(d.get('synthesis_of', '[]'))
         return Belief(**d)

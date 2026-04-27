@@ -21,9 +21,13 @@ class Belief(BaseModel):
     tags: List[str] = Field(default_factory=list)
     scope: str = "global"
     status: Literal["active", "conflicted", "deprecated", "consolidated"] = "active"
+    node_type: Literal["belief", "hub", "synthesis"] = "belief"
+    belongs_to_hub: Optional[str] = None
+    importance: float = 0.5 # 0.0 to 1.0
     
     # Explicit edges for the epistemic graph
     derived_from: List[str] = Field(default_factory=list, description="IDs of beliefs this was derived from")
+    synthesis_of: List[str] = Field(default_factory=list, description="IDs of nodes this synthesis summarizes")
     conflicts_with: List[str] = Field(default_factory=list, description="IDs of beliefs this conflicts with")
     related_to: List[str] = Field(default_factory=list, description="IDs of related beliefs")
     hierarchy: List[str] = Field(default_factory=list, description="Theme and Sub-theme")

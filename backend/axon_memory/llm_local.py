@@ -107,10 +107,17 @@ class OllamaLLM(BaseLLMEngine):
 
     def generate_hierarchy(self, proposition: str) -> List[str]:
         prompt = f"""
-        Analyze the following belief and classify it into a general Theme and a specific Sub-theme.
+        Analyze the following belief and classify it into exactly two levels: a high-level Category and a specific Topic.
+        
+        Examples:
+        - "User prefers dark mode" -> UI, Preferences
+        - "PostgreSQL is the main DB" -> Infrastructure, Database
+        - "Python is used for backend" -> Development, Backend
+        
         Belief: "{proposition}"
         
-        Return ONLY a comma-separated string in this exact format: Theme, Sub-theme
+        Return ONLY the Category and Topic separated by a comma. No other text.
+        Format: Category, Topic
         """
         try:
             response = ollama.generate(
@@ -118,14 +125,14 @@ class OllamaLLM(BaseLLMEngine):
                 prompt=prompt,
                 options={
                     "temperature": 0.0,
-                    "num_predict": 15
+                    "num_predict": 20
                 }
             )
-            result = response.get('response', '')
-            if not result:
-                return ["Uncategorized", "General"]
-            result = result.strip()
-            parts = [p.strip() for p in result.split(",")]
+            result = response.get('response', '').strip()
+            # Clean up potential "Category: UI, Topic: Prefs" or "UI, Topic"
+            result = result.replace("Category:", "").replace("Topic:", "").strip()
+            parts = [p.strip() for p in result.split(",") if p.strip()]
+            
             if len(parts) >= 2:
                 return [parts[0], parts[1]]
             elif len(parts) == 1:
@@ -134,3 +141,50 @@ class OllamaLLM(BaseLLMEngine):
         except Exception as e:
             logger.error(f"Ollama Hierarchy Evaluation failed: {e}")
             return ["Uncategorized", "General"]
+
+    def generate_synthesis(self, propositions: List[str]) -> str:
+        propositions_str = "\n".join([f"- {p}" for p in propositions])
+        prompt = f"""
+        You are an epistemic synthesis engine. Your task is to provide a single, concise, high-level summary that captures the core essence and any emerging consensus from the following group of related beliefs.
+        
+        Beliefs:
+        {propositions_str}
+        
+        Return ONLY the synthesis string (max 20 words). Do not include "Synthesis:" or any other preamble.
+        """
+        try:
+            response = ollama.generate(
+                model=self.model_name,
+                prompt=prompt,
+                options={"temperature": 0.3}
+            )
+            return response.get('response', '').strip()
+        except Exception as e:
+            logger.error(f"Ollama Synthesis failed: {e}")
+            return "Multi-belief synthesis."
+
+    def score_importance(self, proposition: str) -> float:
+        prompt = f"""
+        Score the importance of the following belief for an AI agent's long-term memory.
+        High importance (0.8-1.0): Fundamental architectural decisions, explicit user preferences, critical safety info.
+        Medium importance (0.4-0.7): General project facts, transient task info.
+        Low importance (0.0-0.3): Trivial observations, redundant data.
+        
+        Belief: "{proposition}"
+        
+        Return ONLY a number between 0.0 and 1.0.
+        """
+        try:
+            response = ollama.generate(
+                model=self.model_name,
+                prompt=prompt,
+                options={"temperature": 0.0, "num_predict": 5}
+            )
+            import re
+            match = re.search(r"0\.\d+|1\.0|0|1", response['response'].strip())
+            if match:
+                return float(match.group(0))
+            return 0.5
+        except Exception as e:
+            logger.error(f"Ollama Importance Scoring failed: {e}")
+            return 0.5

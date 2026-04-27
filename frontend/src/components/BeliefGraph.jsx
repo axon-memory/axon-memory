@@ -1,127 +1,177 @@
-import React, { useRef, useEffect, useCallback, useState } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
 
+const NODE_RADIUS = 8; // all nodes same base radius
+
+// Subtle color differentiation: hub = amber, synthesis = violet, belief = indigo
+const NODE_COLOR = {
+  hub:        '#f59e0b',   // amber — thematic cluster
+  synthesis:  '#818cf8',   // violet — consolidated summary
+  belief:     '#6366f1',   // indigo — atomic fact
+  conflicted: '#f43f5e',   // rose
+  deprecated: '#475569',   // slate
+};
+
 export default function BeliefGraph({ beliefs, conflicts, onNodeClick }) {
-  const graphRef = useRef();
-  const [graphData, setGraphData] = useState({ nodes: [], links: [] });
+  const fgRef = useRef();
+  const [data, setData] = useState({ nodes: [], links: [] });
+
+  // Tune physics once data is set
+  useEffect(() => {
+    const fg = fgRef.current;
+    if (!fg) return;
+    try {
+      fg.d3Force('charge').strength(-500);
+      fg.d3Force('link').distance(140);
+    } catch (_) {}
+  }, [data]);
 
   useEffect(() => {
-    // Transform beliefs into nodes
-    const nodes = beliefs.map(b => {
-      const isDeprecated = b.status === 'deprecated';
-      return {
-        id: b.id,
-        name: b.proposition,
-        hierarchy: b.hierarchy,
-        val: b.confidence * 10, // Size based on confidence
-        confidence: b.confidence,
-        status: b.status,
-        color: b.status === 'conflicted' ? '#ef4444' : (isDeprecated ? '#4b5563' : '#3b82f6'),
-        opacity: isDeprecated ? 0.15 : Math.max(0.2, b.confidence)
-      };
-    });
+    const ids = new Set(beliefs.map(b => b.id));
 
-    // Create links from 'derived_from' and 'conflicts_with'
+    const nodes = beliefs.map(b => ({
+      id:        b.id,
+      name:      b.proposition ?? '',
+      node_type: b.node_type ?? 'belief',
+      color: b.status === 'conflicted' ? NODE_COLOR.conflicted
+           : b.status === 'deprecated' ? NODE_COLOR.deprecated
+           : NODE_COLOR[b.node_type] ?? NODE_COLOR.belief,
+    }));
+
     const links = [];
-    
     beliefs.forEach(b => {
-      // Lineage links
-      if (b.derived_from) {
-        b.derived_from.forEach(sourceId => {
-          if (beliefs.find(n => n.id === sourceId)) {
+      // Hub spokes — more prominent white/amber lines
+      if (b.belongs_to_hub && ids.has(b.belongs_to_hub)) {
+        links.push({
+          source: b.belongs_to_hub,
+          target: b.id,
+          color:  b.node_type === 'synthesis'
+            ? 'rgba(129,140,248,0.6)'
+            : 'rgba(255,255,255,0.28)',
+          width: b.node_type === 'synthesis' ? 1.5 : 1.2,
+          dashed: false,
+        });
+      }
+      // Synthesis provenance — violet curved
+      if (b.node_type === 'synthesis' && Array.isArray(b.synthesis_of)) {
+        b.synthesis_of.forEach(sid => {
+          if (ids.has(sid)) {
             links.push({
-              source: sourceId,
-              target: b.id,
-              type: 'derived',
-              color: 'rgba(255, 255, 255, 0.2)',
-              width: 1
+              source:    b.id,
+              target:    sid,
+              color:     'rgba(129,140,248,0.45)',
+              width:     1.2,
+              curvature: 0.25,
             });
           }
         });
       }
 
-      // Related links
-      if (b.related_to) {
-        b.related_to.forEach(relId => {
-          // Avoid duplicate links
-          if (relId > b.id && beliefs.find(n => n.id === relId)) {
+      // Related-to links — dashed white, de-duplicated
+      if (Array.isArray(b.related_to)) {
+        b.related_to.forEach(rid => {
+          if (ids.has(rid) && b.id < rid) { // prevent double-drawing
             links.push({
-              source: b.id,
-              target: relId,
-              type: 'related',
-              color: 'rgba(255, 255, 255, 0.08)',
-              width: 1
+              source:    b.id,
+              target:    rid,
+              color:     'rgba(251,191,36,0.55)', // amber-ish to signal 'related'
+              width:     1.5,
+              isRelated: true,
             });
           }
         });
       }
     });
 
-    // Conflict links
+    // Conflict links — dashed red
     conflicts.forEach(c => {
       if (c.status === 'pending') {
         links.push({
-          source: c.belief_a_id,
-          target: c.belief_b_id,
-          type: 'conflict',
-          color: '#ef4444',
-          width: 3,
-          dash: [4, 4]
+          source:     c.belief_a_id,
+          target:     c.belief_b_id,
+          color:      '#f43f5e',
+          width:      2,
+          isConflict: true,
         });
       }
     });
 
-    setGraphData({ nodes, links });
+    setData({ nodes, links });
   }, [beliefs, conflicts]);
 
-  const paintNode = useCallback((node, ctx, globalScale) => {
-    const hierarchyPrefix = node.hierarchy && node.hierarchy.length > 0 ? `${node.hierarchy[0]} > ` : '';
-    const label = hierarchyPrefix + node.name;
-    const fontSize = 12/globalScale;
-    ctx.font = `${fontSize}px Inter, sans-serif`;
-    
-    // Draw Node Circle
+  // Custom draw: uniform circle + inline white label
+  const paintNode = (node, ctx, globalScale) => {
+    if (node.x == null) return;
+
+    const r     = NODE_RADIUS;
+    const color = node.color;
+
+    // Circle fill
     ctx.beginPath();
-    ctx.arc(node.x, node.y, 5, 0, 2 * Math.PI, false);
-    
-    // Use opacity based on confidence
-    ctx.globalAlpha = node.opacity;
-    ctx.fillStyle = node.color;
+    ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
+    ctx.fillStyle = color;
     ctx.fill();
-    
-    if (node.status === 'conflicted') {
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = '#fff';
-      ctx.stroke();
+
+    // Crisp border
+    ctx.lineWidth   = 1.5 / globalScale;
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.stroke();
+
+    // White inline label to the right of the node
+    const fontSize = Math.min(13, Math.max(9, 13 / globalScale));
+    ctx.font         = `400 ${fontSize}px Inter, sans-serif`;
+    ctx.textAlign    = 'left';
+    ctx.textBaseline = 'middle';
+
+    const raw   = node.name;
+    const label = raw.length > 34 ? raw.slice(0, 34) + '…' : raw;
+
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.fillText(label, node.x + r + 6 / globalScale, node.y);
+  };
+
+  // Custom link renderer so we can draw dashed conflict lines
+  const paintLink = (link, ctx, globalScale) => {
+    const src = link.source;
+    const tgt = link.target;
+    if (src.x == null || tgt.x == null) return;
+
+    ctx.beginPath();
+    ctx.moveTo(src.x, src.y);
+    ctx.lineTo(tgt.x, tgt.y);
+    ctx.lineWidth   = (link.width ?? 1) / globalScale;
+    ctx.strokeStyle = link.color ?? 'rgba(255,255,255,0.15)';
+
+    if (link.isConflict || link.isRelated) {
+      ctx.setLineDash([6 / globalScale, 4 / globalScale]);
+    } else {
+      ctx.setLineDash([]);
     }
 
-    ctx.globalAlpha = 1;
-
-    // Draw Label text
-    const textWidth = ctx.measureText(label).width;
-    const bckgDimensions = [textWidth, fontSize].map(n => n + fontSize * 0.2);
-    
-    ctx.fillStyle = 'rgba(10, 10, 12, 0.8)';
-    ctx.fillRect(node.x - bckgDimensions[0] / 2, node.y + 8 - bckgDimensions[1] / 2, ...bckgDimensions);
-
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = `rgba(255, 255, 255, ${Math.max(0.4, node.opacity)})`;
-    ctx.fillText(label, node.x, node.y + 8);
-  }, []);
+    ctx.stroke();
+    ctx.setLineDash([]); // reset
+  };
 
   return (
     <ForceGraph2D
-      ref={graphRef}
-      graphData={graphData}
-      nodeCanvasObject={paintNode}
-      linkColor={link => link.color}
-      linkWidth={link => link.width}
-      linkLineDash={link => link.type === 'conflict' ? [4, 4] : null}
-      backgroundColor="#0a0a0c"
+      ref={fgRef}
+      graphData={data}
+      nodeRelSize={NODE_RADIUS}
+      nodeColor={n => n.color}
+      linkColor={l => l.color}
+      linkWidth={l => l.width ?? 1}
+      backgroundColor="#0d0d14"
       onNodeClick={onNodeClick}
-      d3AlphaDecay={0.02}
-      d3VelocityDecay={0.3}
+      nodeCanvasObject={paintNode}
+      nodeCanvasObjectMode={() => 'replace'}
+      linkCanvasObject={paintLink}
+      linkCanvasObjectMode={() => 'replace'}
+      nodePointerAreaPaint={(node, color, ctx) => {
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, NODE_RADIUS + 8, 0, 2 * Math.PI);
+        ctx.fill();
+      }}
     />
   );
 }

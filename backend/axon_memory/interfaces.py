@@ -27,6 +27,16 @@ class BaseLLMEngine(ABC):
         """Classifies the proposition into a Theme and Sub-theme."""
         pass
 
+    @abstractmethod
+    def generate_synthesis(self, propositions: List[str]) -> str:
+        """Generates a high-level summary of a group of propositions."""
+        pass
+
+    @abstractmethod
+    def score_importance(self, proposition: str) -> float:
+        """Scores the importance of a belief (0.0 to 1.0)."""
+        pass
+
 class BaseStorageLayer(ABC):
     @abstractmethod
     def save_belief(self, belief: Belief, embedding: List[float]):

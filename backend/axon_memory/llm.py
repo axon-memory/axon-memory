@@ -126,3 +126,50 @@ class GeminiLLM(BaseLLMEngine):
         except Exception as e:
             logger.error(f"LLM Hierarchy Evaluation failed: {e}")
             return ["Uncategorized", "General"]
+
+    def generate_synthesis(self, propositions: List[str]) -> str:
+        propositions_str = "\n".join([f"- {p}" for p in propositions])
+        prompt = f"""
+        You are an epistemic synthesis engine. Your task is to provide a single, concise, high-level summary that captures the core essence and any emerging consensus from the following group of related beliefs.
+        
+        Beliefs:
+        {propositions_str}
+        
+        Return ONLY the synthesis string (max 20 words). Do not include "Synthesis:" or any other preamble.
+        """
+        try:
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(temperature=0.3)
+            )
+            return response.text.strip()
+        except Exception as e:
+            logger.error(f"Gemini Synthesis failed: {e}")
+            return "Multi-belief synthesis."
+
+    def score_importance(self, proposition: str) -> float:
+        prompt = f"""
+        Score the importance of the following belief for an AI agent's long-term memory.
+        High importance (0.8-1.0): Fundamental architectural decisions, explicit user preferences, critical safety info.
+        Medium importance (0.4-0.7): General project facts, transient task info.
+        Low importance (0.0-0.3): Trivial observations, redundant data.
+        
+        Belief: "{proposition}"
+        
+        Return ONLY a number between 0.0 and 1.0.
+        """
+        try:
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(temperature=0.0)
+            )
+            import re
+            match = re.search(r"0\.\d+|1\.0|0|1", response.text.strip())
+            if match:
+                return float(match.group(0))
+            return 0.5
+        except Exception as e:
+            logger.error(f"Gemini Importance Scoring failed: {e}")
+            return 0.5

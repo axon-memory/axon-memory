@@ -1,5 +1,6 @@
 from mcp.server.fastmcp import FastMCP
 from ..engine import AxonMemory
+from mcp.types import Tool, TextContent
 
 mcp = FastMCP("axon-memory")
 axon = AxonMemory()
@@ -16,6 +17,12 @@ def search_beliefs(query: str, scope: str = "global") -> str:
     results = axon.search(query=query, scope=scope, top_k=5)
     formatted = [f"- {b.proposition} (confidence: {b.confidence:.2f})" for b in results]
     return "Beliefs:\n" + "\n".join(formatted) if formatted else "No relevant beliefs found."
+
+@mcp.tool()
+def consolidate_memory(scope: str = "global") -> str:
+    """Performs periodic memory consolidation: groups beliefs, generates synthesis nodes, and identifies contradictions."""
+    axon.consolidate(scope=scope)
+    return "Memory consolidation complete."
 
 def run_mcp():
     mcp.run()

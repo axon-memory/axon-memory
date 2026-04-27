@@ -9,7 +9,7 @@ app = FastAPI(title="Axon Memory API", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5174"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -67,8 +67,48 @@ def resolve_conflict(conflict_id: str, resolution: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/memory/consolidate")
+async def consolidate_memory(scope: str = "global"):
+    try:
+        axon.consolidate(scope=scope)
+        return {"status": "success", "message": f"Consolidation completed for scope: {scope}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/memory/stats")
+async def get_stats(scope: str = "global"):
+    beliefs = axon.get_beliefs(scope=scope)
+    
+    total = len(beliefs)
+    active = len([b for b in beliefs if b.status == "active"])
+    conflicted = len([b for b in beliefs if b.status == "conflicted"])
+    deprecated = len([b for b in beliefs if b.status == "deprecated"])
+    
+    hubs = len([b for b in beliefs if b.node_type == "hub"])
+    synthesis = len([b for b in beliefs if b.node_type == "synthesis"])
+    atomic = len([b for b in beliefs if b.node_type == "belief"])
+    
+    return {
+        "total_nodes": total,
+        "by_status": {
+            "active": active,
+            "conflicted": conflicted,
+            "deprecated": deprecated
+        },
+        "by_type": {
+            "hub": hubs,
+            "synthesis": synthesis,
+            "belief": atomic
+        },
+        "health_score": (active / total) if total > 0 else 1.0
+    }
+
 @app.get("/traces/{belief_id}")
 def get_traces(belief_id: str):
     with axon.storage._get_connection() as conn:
         rows = conn.execute("SELECT * FROM traces WHERE belief_id = ? ORDER BY timestamp DESC", (belief_id,)).fetchall()
         return [dict(r) for r in rows]
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
