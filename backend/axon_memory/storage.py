@@ -4,13 +4,12 @@ import json
 import logging
 from typing import List, Optional, Tuple
 from pathlib import Path
-from .models import Belief, Conflict, Trace
+from .models import Belief, Conflict, Trace, Vault
 
 logger = logging.getLogger(__name__)
 
 class StorageLayer:
     def __init__(self, db_path: str = "~/.axon/memory.db", embedding_dim: int = 384):
-        # Resolve path
         path = Path(db_path).expanduser()
         path.parent.mkdir(parents=True, exist_ok=True)
         self.db_path = str(path)
@@ -27,6 +26,17 @@ class StorageLayer:
 
     def _init_db(self):
         with self._get_connection() as conn:
+            # Vaults table — each vault is a named namespace/scope
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS vaults (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL UNIQUE,
+                    description TEXT,
+                    created_at TIMESTAMP NOT NULL,
+                    updated_at TIMESTAMP NOT NULL
+                )
+            """)
+
             # Beliefs Table
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS beliefs (
@@ -52,9 +62,6 @@ class StorageLayer:
                 )
             """)
 
-            # Vector Table for Beliefs
-            # Note: sqlite-vec uses vec0 virtual table
-            # Check if it exists by querying sqlite_master
             cur = conn.cursor()
             cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='vec_beliefs'")
             if not cur.fetchone():
@@ -65,7 +72,6 @@ class StorageLayer:
                     )
                 """)
 
-            # Conflicts Table
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS conflicts (
                     id TEXT PRIMARY KEY,
@@ -77,7 +83,6 @@ class StorageLayer:
                 )
             """)
 
-            # Traces Table
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS traces (
                     id TEXT PRIMARY KEY,
@@ -90,13 +95,65 @@ class StorageLayer:
 
             conn.commit()
 
+    # ── Vault CRUD ──────────────────────────────────────────
+
+    def create_vault(self, vault: "Vault") -> "Vault":
+        with self._get_connection() as conn:
+            conn.execute(
+                "INSERT INTO vaults (id, name, description, created_at, updated_at) VALUES (?,?,?,?,?)",
+                (vault.id, vault.name, vault.description, vault.created_at, vault.updated_at)
+            )
+            conn.commit()
+        return vault
+
+    def get_vaults(self) -> List["Vault"]:
+        with self._get_connection() as conn:
+            rows = conn.execute("SELECT * FROM vaults ORDER BY created_at ASC").fetchall()
+            return [self._row_to_vault(r) for r in rows]
+
+    def get_vault(self, vault_id: str) -> Optional["Vault"]:
+        with self._get_connection() as conn:
+            row = conn.execute("SELECT * FROM vaults WHERE id = ?", (vault_id,)).fetchone()
+            return self._row_to_vault(row) if row else None
+
+    def get_vault_by_name(self, name: str) -> Optional["Vault"]:
+        with self._get_connection() as conn:
+            row = conn.execute("SELECT * FROM vaults WHERE name = ?", (name,)).fetchone()
+            return self._row_to_vault(row) if row else None
+
+    def update_vault(self, vault_id: str, name: Optional[str], description: Optional[str]):
+        from .models import utc_now
+        with self._get_connection() as conn:
+            if name:
+                conn.execute("UPDATE vaults SET name=?, updated_at=? WHERE id=?", (name, utc_now(), vault_id))
+            if description is not None:
+                conn.execute("UPDATE vaults SET description=?, updated_at=? WHERE id=?", (description, utc_now(), vault_id))
+            conn.commit()
+
+    def delete_vault(self, vault_id: str):
+        vault = self.get_vault(vault_id)
+        if not vault:
+            return
+        with self._get_connection() as conn:
+            # Cascade delete all beliefs in this vault's scope
+            conn.execute("DELETE FROM beliefs WHERE scope = ?", (vault.name,))
+            conn.execute("DELETE FROM conflicts WHERE scope = ?", (vault.name,))
+            conn.execute("DELETE FROM vaults WHERE id = ?", (vault_id,))
+            conn.commit()
+
+    def _row_to_vault(self, row) -> "Vault":
+        from .models import Vault
+        d = dict(row)
+        return Vault(**d)
+
+    # ── Belief CRUD ─────────────────────────────────────────
+
     def save_belief(self, belief: Belief, embedding: List[float]):
         with self._get_connection() as conn:
-            # 1. Save to relational table
             conn.execute("""
                 INSERT OR REPLACE INTO beliefs (
-                    id, proposition, confidence, source_type, source_ref, 
-                    created_at, updated_at, half_life_hrs, tags, scope, status, 
+                    id, proposition, confidence, source_type, source_ref,
+                    created_at, updated_at, half_life_hrs, tags, scope, status,
                     derived_from, conflicts_with, related_to, hierarchy,
                     node_type, belongs_to_hub, importance, synthesis_of
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -109,15 +166,17 @@ class StorageLayer:
                 belief.node_type, belief.belongs_to_hub, belief.importance,
                 json.dumps(belief.synthesis_of)
             ))
-
-            # 2. Save to vector table
-            # sqlite-vec expects a JSON array or BLOB. We use JSON array string.
             conn.execute("DELETE FROM vec_beliefs WHERE id = ?", (belief.id,))
-            conn.execute("""
-                INSERT INTO vec_beliefs (id, embedding)
-                VALUES (?, ?)
-            """, (belief.id, json.dumps(embedding)))
+            conn.execute(
+                "INSERT INTO vec_beliefs (id, embedding) VALUES (?, ?)",
+                (belief.id, json.dumps(embedding))
+            )
+            conn.commit()
 
+    def delete_belief(self, belief_id: str):
+        with self._get_connection() as conn:
+            conn.execute("DELETE FROM beliefs WHERE id = ?", (belief_id,))
+            conn.execute("DELETE FROM vec_beliefs WHERE id = ?", (belief_id,))
             conn.commit()
 
     def save_conflict(self, conflict: Conflict):
@@ -135,20 +194,15 @@ class StorageLayer:
     def save_trace(self, trace: Trace):
         with self._get_connection() as conn:
             conn.execute("""
-                INSERT INTO traces (
-                    id, belief_id, action, timestamp, details
-                ) VALUES (?, ?, ?, ?, ?)
-            """, (
-                trace.id, trace.belief_id, trace.action, trace.timestamp, trace.details
-            ))
+                INSERT INTO traces (id, belief_id, action, timestamp, details)
+                VALUES (?, ?, ?, ?, ?)
+            """, (trace.id, trace.belief_id, trace.action, trace.timestamp, trace.details))
             conn.commit()
 
     def get_belief(self, belief_id: str) -> Optional[Belief]:
         with self._get_connection() as conn:
             row = conn.execute("SELECT * FROM beliefs WHERE id = ?", (belief_id,)).fetchone()
-            if row:
-                return self._row_to_belief(row)
-            return None
+            return self._row_to_belief(row) if row else None
 
     def get_beliefs_by_scope(self, scope: str) -> List[Belief]:
         with self._get_connection() as conn:
@@ -156,7 +210,6 @@ class StorageLayer:
             return [self._row_to_belief(row) for row in rows]
 
     def search_similar(self, embedding: List[float], scope: str, top_k: int = 5) -> List[Tuple[Belief, float]]:
-        # Returns (Belief, Distance)
         with self._get_connection() as conn:
             query = """
                 SELECT b.*, vec_distance_L2(v.embedding, ?) as distance
@@ -167,23 +220,17 @@ class StorageLayer:
                 LIMIT ?
             """
             rows = conn.execute(query, (json.dumps(embedding), scope, top_k)).fetchall()
-            results = []
-            for row in rows:
-                dist = row['distance']
-                results.append((self._row_to_belief(row), dist))
-            return results
+            return [(self._row_to_belief(row), row['distance']) for row in rows]
 
-    def _row_to_belief(self, row: sqlite3.Row) -> Belief:
-        # sqlite3 timestamp conversion works implicitly if PARSE_DECLTYPES is used, 
-        # but let's be careful and construct it via dict.
+    def _row_to_belief(self, row) -> Belief:
         d = dict(row)
-        d['tags'] = json.loads(d['tags'])
-        d['derived_from'] = json.loads(d['derived_from'])
-        d['conflicts_with'] = json.loads(d['conflicts_with'])
-        d['related_to'] = json.loads(d.get('related_to', '[]'))
-        d['hierarchy'] = json.loads(d.get('hierarchy', '[]'))
-        d['node_type'] = d.get('node_type', 'belief')
-        d['belongs_to_hub'] = d.get('belongs_to_hub')
-        d['importance'] = d.get('importance', 0.5)
-        d['synthesis_of'] = json.loads(d.get('synthesis_of', '[]'))
+        d['tags']          = json.loads(d['tags'])
+        d['derived_from']  = json.loads(d['derived_from'])
+        d['conflicts_with']= json.loads(d['conflicts_with'])
+        d['related_to']    = json.loads(d.get('related_to', '[]'))
+        d['hierarchy']     = json.loads(d.get('hierarchy', '[]'))
+        d['node_type']     = d.get('node_type', 'belief')
+        d['belongs_to_hub']= d.get('belongs_to_hub')
+        d['importance']    = d.get('importance', 0.5)
+        d['synthesis_of']  = json.loads(d.get('synthesis_of', '[]'))
         return Belief(**d)
