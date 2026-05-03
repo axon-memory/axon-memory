@@ -30,7 +30,7 @@ Axon Memory is a prototype semantic memory system for tracking beliefs, evidence
 
 ```bash
 cd backend
-uv install
+uv sync
 ```
 
 > Note: `pyproject.toml` defines the backend dependencies.
