@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import List, Tuple, Optional, Literal
-from .models import Belief, Conflict, Trace
+from axon_memory.models import Belief, Conflict, Trace
 
 class BaseEmbeddingEngine(ABC):
     @abstractmethod

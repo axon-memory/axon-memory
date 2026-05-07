@@ -1,5 +1,5 @@
 from mcp.server.fastmcp import FastMCP
-from ..engine import AxonMemory
+from axon_memory.engine import AxonMemory
 from mcp.types import Tool, TextContent
 
 mcp = FastMCP("axon-memory")

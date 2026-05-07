@@ -1,9 +1,9 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List
-from ..engine import AxonMemory
-from ..models import Belief, Conflict, Trace
-from .schemas import (
+from axon_memory.engine import AxonMemory
+from axon_memory.models import Belief, Conflict, Trace
+from axon_memory.server.schemas import (
     BelieveRequest,
     ResolutionResponse,
     ConsolidationResponse,

@@ -2,10 +2,10 @@ import logging
 import math
 from typing import List, Optional, Literal
 from datetime import datetime, timezone
-from .models import Belief, Conflict, Trace, utc_now
-from .storage import StorageLayer
-from .embeddings import EmbeddingEngine
-from .interfaces import BaseStorageLayer, BaseEmbeddingEngine, BaseLLMEngine
+from axon_memory.models import Belief, Conflict, Trace, utc_now
+from axon_memory.storage import StorageLayer
+from axon_memory.embeddings import EmbeddingEngine
+from axon_memory.interfaces import BaseStorageLayer, BaseEmbeddingEngine, BaseLLMEngine
 import os
 from dotenv import load_dotenv
 
@@ -28,14 +28,14 @@ class AxonMemory:
         else:
             try:
                 # 1. Try Local Ollama LLM
-                from .llm_local import OllamaLLM
+                from axon_memory.llm_local import OllamaLLM
                 self.llm = OllamaLLM()
                 logger.info("Initialized Local Ollama LLM")
             except Exception as e:
                 logger.info(f"Ollama not available ({e}). Falling back to Gemini.")
                 # 2. Fallback to Gemini LLM
                 if os.getenv("GEMINI_API_KEY"):
-                    from .llm import GeminiLLM
+                    from axon_memory.llm import GeminiLLM
                     self.llm = GeminiLLM()
                     logger.info("Initialized Gemini LLM")
                 else:

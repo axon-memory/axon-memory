@@ -1,7 +1,7 @@
 import os
 import logging
 from typing import Literal, List
-from .interfaces import BaseLLMEngine
+from axon_memory.interfaces import BaseLLMEngine
 
 try:
     from google import genai

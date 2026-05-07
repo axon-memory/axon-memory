@@ -4,7 +4,7 @@ import json
 import logging
 from typing import List, Optional, Tuple
 from pathlib import Path
-from .models import Belief, Conflict, Trace, Vault
+from axon_memory.models import Belief, Conflict, Trace, Vault
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +122,7 @@ class StorageLayer:
             return self._row_to_vault(row) if row else None
 
     def update_vault(self, vault_id: str, name: Optional[str], description: Optional[str]):
-        from .models import utc_now
+        from axon_memory.models import utc_now
         with self._get_connection() as conn:
             if name:
                 conn.execute("UPDATE vaults SET name=?, updated_at=? WHERE id=?", (name, utc_now(), vault_id))
@@ -142,7 +142,7 @@ class StorageLayer:
             conn.commit()
 
     def _row_to_vault(self, row) -> "Vault":
-        from .models import Vault
+        from axon_memory.models import Vault
         d = dict(row)
         return Vault(**d)
 
