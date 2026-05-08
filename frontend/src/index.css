@@ -334,3 +334,65 @@ html, body, #root {
 }
 .toast-ok  { background: #1e293b; color: #94a3b8; border: 1px solid rgba(255,255,255,0.1); }
 .toast-err { background: rgba(244,63,94,0.15); color: #f43f5e; border: 1px solid rgba(244,63,94,0.3); }
+
+/* ─── Search Bar ─────────────────────────────── */
+.search-bar {
+  display: flex; gap: 4px; align-items: center;
+}
+.search-input {
+  flex: 1; padding: 7px 10px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 6px;
+  color: #e2e8f0; font-family: 'Inter', sans-serif; font-size: 12px;
+  outline: none; transition: border-color 0.15s;
+}
+.search-input:focus { border-color: rgba(99,102,241,0.5); }
+.search-input::placeholder { color: #334155; }
+.search-btn, .search-clear {
+  background: none; border: none; color: #64748b;
+  font-size: 14px; cursor: pointer; padding: 4px 6px;
+  transition: color 0.15s;
+}
+.search-btn:hover:not(:disabled), .search-clear:hover { color: #e2e8f0; }
+.search-btn:disabled { opacity: 0.3; cursor: default; }
+
+/* ─── Scope Selector ─────────────────────────── */
+.scope-selector {
+  padding: 8px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.scope-select {
+  width: 100%; padding: 7px 10px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 6px;
+  color: #e2e8f0; font-family: 'Inter', sans-serif; font-size: 12px;
+  outline: none; cursor: pointer;
+}
+.scope-select option { background: #16161f; }
+
+/* ─── Inspector Actions ──────────────────────── */
+.insp-actions { margin-left: auto; display: flex; gap: 4px; }
+.icon-btn {
+  background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+  color: #94a3b8; border-radius: 4px; padding: 3px 7px;
+  font-size: 12px; cursor: pointer; transition: all 0.15s;
+  font-family: 'Inter', sans-serif;
+}
+.icon-btn:hover { background: rgba(255,255,255,0.1); color: #e2e8f0; }
+.icon-btn-danger:hover { background: rgba(244,63,94,0.15); color: #f43f5e; border-color: rgba(244,63,94,0.3); }
+
+/* ─── Edit Form ──────────────────────────────── */
+.edit-form { padding: 0; }
+.edit-form .field-group { margin-bottom: 10px; }
+.edit-actions { display: flex; gap: 6px; justify-content: flex-end; margin-top: 10px; }
+
+/* ─── Conflict Explanation ───────────────────── */
+.conflict-explanation {
+  font-size: 10px; color: #64748b; font-style: italic;
+  line-height: 1.5; margin-bottom: 8px;
+  padding: 6px 8px; border-radius: 4px;
+  background: rgba(244,63,94,0.04);
+  border-left: 2px solid rgba(244,63,94,0.3);
+}

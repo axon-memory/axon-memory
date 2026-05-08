@@ -256,3 +256,29 @@ class GeminiLLM(BaseLLMEngine):
         except Exception as e:
             logger.error(f"Gemini Importance Scoring failed: {e}")
             return 0.5
+
+    def explain_conflict(self, proposition_a: str, proposition_b: str) -> str:
+        """
+        Generate a brief explanation of why two beliefs conflict using Gemini.
+        """
+        prompt = f"""
+        Explain in one concise sentence why these two beliefs contradict each other:
+        
+        Belief A: "{proposition_a}"
+        Belief B: "{proposition_b}"
+        
+        Return ONLY the explanation sentence, nothing else.
+        """
+        try:
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.0,
+                    max_output_tokens=60
+                )
+            )
+            return response.text.strip()
+        except Exception as e:
+            logger.error(f"Gemini Conflict Explanation failed: {e}")
+            return "These beliefs appear to contradict each other."

@@ -113,19 +113,22 @@ class Conflict(BaseModel):
         ID of the first conflicting belief.
     belief_b_id : str
         ID of the second conflicting belief.
-    status : Literal["pending", "resolved_a", "resolved_b"]
+    status : Literal["pending", "resolved_a", "resolved_b", "resolved_merge"]
         Resolution status of the conflict.
     detected_at : datetime
         The time the conflict was detected.
     scope : str
         The scope of the conflict.
+    explanation : Optional[str]
+        LLM-generated explanation of why these beliefs conflict.
     """
     id: str = Field(default_factory=generate_uuid)
     belief_a_id: str
     belief_b_id: str
-    status: Literal["pending", "resolved_a", "resolved_b"] = "pending"
+    status: Literal["pending", "resolved_a", "resolved_b", "resolved_merge"] = "pending"
     detected_at: datetime = Field(default_factory=utc_now)
     scope: str
+    explanation: Optional[str] = None
 
 class Trace(BaseModel):
     """
