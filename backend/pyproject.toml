@@ -6,9 +6,20 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.136.1",
+    "google-genai>=1.73.1",
     "mcp>=1.27.0",
+    "ollama>=0.6.1",
     "pydantic>=2.13.3",
+    "python-dotenv>=1.2.2",
     "sentence-transformers>=5.4.1",
     "sqlite-vec>=0.1.9",
     "uvicorn>=0.46.0",
+]
+
+[dependency-groups]
+dev = [
+    "furo>=2025.12.19",
+    "sphinx>=9.1.0",
+    "sphinx-autodoc-typehints>=3.10.2",
+    "sphinxcontrib-mermaid>=2.0.2",
 ]

@@ -1,28 +1,28 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import List, Optional
-from ..engine import AxonMemory
-from ..models import Belief
+from typing import List
+from axon_memory.engine import AxonMemory
+from axon_memory.models import Belief, Conflict, Trace
+from axon_memory.server.schemas import (
+    BelieveRequest,
+    ResolutionResponse,
+    ConsolidationResponse,
+    StatsResponse,
+    ConflictResponse,
+    TraceResponse,
+)
 
 app = FastAPI(title="Axon Memory API", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5174"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 axon = AxonMemory()
-
-class BelieveRequest(BaseModel):
-    proposition: str
-    scope: str = "global"
-    source_type: str = "user_explicit"
-    evidence: Optional[str] = None
-    tags: List[str] = []
 
 @app.post("/beliefs", response_model=Belief)
 def believe(req: BelieveRequest):
@@ -32,7 +32,9 @@ def believe(req: BelieveRequest):
             scope=req.scope,
             source=req.source_type,  # type: ignore
             evidence=req.evidence,
-            tags=req.tags
+            tags=req.tags,
+            confidence=req.confidence,
+            half_life_hrs=req.half_life_hrs
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -45,13 +47,13 @@ def get_beliefs(scope: str = "global"):
 def search_beliefs(q: str, scope: str = "global", top_k: int = 5):
     return axon.search(query=q, scope=scope, top_k=top_k)
 
-@app.get("/conflicts")
+@app.get("/conflicts", response_model=List[ConflictResponse])
 def get_conflicts(scope: str = "global"):
     with axon.storage._get_connection() as conn:
         rows = conn.execute("SELECT * FROM conflicts WHERE scope = ? AND status = 'pending'", (scope,)).fetchall()
         return [dict(r) for r in rows]
 
-@app.post("/conflicts/{conflict_id}/resolve")
+@app.post("/conflicts/{conflict_id}/resolve", response_model=ResolutionResponse)
 def resolve_conflict(conflict_id: str, resolution: str):
     # resolution should be 'resolved_a' or 'resolved_b'
     if resolution not in ['resolved_a', 'resolved_b']:
@@ -59,12 +61,52 @@ def resolve_conflict(conflict_id: str, resolution: str):
     
     try:
         axon.resolve_conflict(conflict_id, resolution) # type: ignore
-        return {"status": "success"}
+        return ResolutionResponse(status="success")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/traces/{belief_id}")
+@app.post("/memory/consolidate", response_model=ConsolidationResponse)
+async def consolidate_memory(scope: str = "global"):
+    try:
+        axon.consolidate(scope=scope)
+        return ConsolidationResponse(status="success", message=f"Consolidation completed for scope: {scope}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/memory/stats", response_model=StatsResponse)
+async def get_stats(scope: str = "global"):
+    beliefs = axon.get_beliefs(scope=scope)
+    
+    total = len(beliefs)
+    active = len([b for b in beliefs if b.status == "active"])
+    conflicted = len([b for b in beliefs if b.status == "conflicted"])
+    deprecated = len([b for b in beliefs if b.status == "deprecated"])
+    
+    hubs = len([b for b in beliefs if b.node_type == "hub"])
+    synthesis = len([b for b in beliefs if b.node_type == "synthesis"])
+    atomic = len([b for b in beliefs if b.node_type == "belief"])
+    
+    return StatsResponse(
+        total_nodes=total,
+        by_status={
+            "active": active,
+            "conflicted": conflicted,
+            "deprecated": deprecated
+        },
+        by_type={
+            "hub": hubs,
+            "synthesis": synthesis,
+            "belief": atomic
+        },
+        health_score=(active / total) if total > 0 else 1.0
+    )
+
+@app.get("/traces/{belief_id}", response_model=List[TraceResponse])
 def get_traces(belief_id: str):
     with axon.storage._get_connection() as conn:
         rows = conn.execute("SELECT * FROM traces WHERE belief_id = ? ORDER BY timestamp DESC", (belief_id,)).fetchall()
         return [dict(r) for r in rows]
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

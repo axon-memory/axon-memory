@@ -1,39 +1,208 @@
-import React, { useRef, useEffect, useCallback, useState } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
 
-export default function BeliefGraph({ beliefs, conflicts, onNodeClick }) {
-  const graphRef = useRef();
-  const [graphData, setGraphData] = useState({ nodes: [], links: [] });
+const NODE_RADIUS = 8;
+
+const NODE_COLOR = {
+  hub:        '#f59e0b',
+  synthesis:  '#818cf8',
+  belief:     '#6366f1',
+  conflicted: '#f43f5e',
+  deprecated: '#475569',
+};
+
+// Draw a single node onto the canvas
+function drawNode(node, ctx, globalScale) {
+  if (node.x == null) return;
+
+  const r     = node.isHub ? (node.collapsed ? NODE_RADIUS + 4 : NODE_RADIUS) : NODE_RADIUS;
+  const color = node.color;
+
+  // Core circle
+  ctx.beginPath();
+  ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
+  ctx.fillStyle = color;
+  ctx.fill();
+
+  // Border ring
+  ctx.lineWidth   = 1.5 / globalScale;
+  ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+  ctx.stroke();
+
+  // Collapsed hub: show child count badge
+  if (node.isHub && node.collapsed && node.childCount > 0) {
+    const badge = String(node.childCount);
+    const bR    = 7 / globalScale;
+    const bx    = node.x + r * 0.65;
+    const by    = node.y - r * 0.65;
+    ctx.beginPath();
+    ctx.arc(bx, by, bR, 0, 2 * Math.PI);
+    ctx.fillStyle = '#1e1e2e';
+    ctx.fill();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1 / globalScale;
+    ctx.stroke();
+
+    ctx.font         = `700 ${Math.max(7, 9 / globalScale)}px Inter, sans-serif`;
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle    = color;
+    ctx.fillText(badge, bx, by);
+  }
+
+  // Expand/collapse indicator chevron on hubs
+  if (node.isHub) {
+    const chevron = node.collapsed ? '▸' : '▾';
+    ctx.font         = `400 ${Math.max(6, 8 / globalScale)}px Inter, sans-serif`;
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle    = 'rgba(255,255,255,0.6)';
+    ctx.fillText(chevron, node.x, node.y);
+  }
+
+  // Labels — hubs always, others at zoom > 2
+  const showLabel = node.isHub || globalScale > 2;
+  if (!showLabel) return;
+
+  const raw      = node.name;
+  const maxLen   = node.isHub ? 20 : 32;
+  const label    = raw.length > maxLen ? raw.slice(0, maxLen) + '…' : raw;
+  const fontSize = Math.max(9, Math.min(13, 13 / globalScale));
+  const weight   = node.isHub ? '600' : '400';
+
+  ctx.font         = `${weight} ${fontSize}px Inter, sans-serif`;
+  ctx.textAlign    = 'left';
+  ctx.textBaseline = 'middle';
+
+  const tw   = ctx.measureText(label).width;
+  const padX = 5, padY = 3;
+  const bw   = tw + padX * 2;
+  const bh   = fontSize + padY * 2;
+  const bx   = node.x + r + 6 / globalScale;
+  const by   = node.y - bh / 2;
+
+  // label pill background
+  ctx.fillStyle = 'rgba(13,13,20,0.88)';
+  ctx.fillRect(bx, by, bw, bh);
+
+  // left accent
+  ctx.fillStyle = color;
+  ctx.fillRect(bx, by, 2, bh);
+
+  // text
+  ctx.fillStyle    = node.isHub ? '#fbbf24' : '#e2e8f0';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(label, bx + padX + 2, node.y);
+}
+
+// Draw a link (supports dashed styles)
+function drawLink(link, ctx, globalScale) {
+  const src = link.source;
+  const tgt = link.target;
+  if (!src || !tgt || src.x == null || tgt.x == null) return;
+
+  ctx.beginPath();
+  ctx.moveTo(src.x, src.y);
+  ctx.lineTo(tgt.x, tgt.y);
+  ctx.lineWidth   = (link.width ?? 1) / globalScale;
+  ctx.strokeStyle = link.color ?? 'rgba(255,255,255,0.15)';
+
+  if (link.dashed) {
+    ctx.setLineDash([6 / globalScale, 4 / globalScale]);
+  } else {
+    ctx.setLineDash([]);
+  }
+
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+export default function BeliefGraph({ beliefs, conflicts, collapsedHubs, onNodeClick }) {
+  const fgRef = useRef();
+  const [data, setData] = useState({ nodes: [], links: [] });
+
+  // Tune physics after data is set
+  useEffect(() => {
+    const fg = fgRef.current;
+    if (!fg) return;
+    try {
+      fg.d3Force('charge').strength(-450);
+      fg.d3Force('link').distance(l => l.isHubSpoke ? 130 : 90);
+    } catch (_) {}
+  }, [data]);
 
   useEffect(() => {
-    // Transform beliefs into nodes
-    const nodes = beliefs.map(b => {
-      const isDeprecated = b.status === 'deprecated';
-      return {
-        id: b.id,
-        name: b.proposition,
-        val: b.confidence * 10, // Size based on confidence
-        confidence: b.confidence,
-        status: b.status,
-        color: b.status === 'conflicted' ? '#ef4444' : (isDeprecated ? '#4b5563' : '#3b82f6'),
-        opacity: isDeprecated ? 0.15 : Math.max(0.2, b.confidence)
-      };
+    const collapsed = collapsedHubs ?? new Set();
+    const beliefMap = new Map(beliefs.map(b => [b.id, b]));
+
+    // Count children per hub
+    const childCount = {};
+    beliefs.forEach(b => {
+      if (b.belongs_to_hub) {
+        childCount[b.belongs_to_hub] = (childCount[b.belongs_to_hub] ?? 0) + 1;
+      }
     });
 
-    // Create links from 'derived_from' and 'conflicts_with'
+    // Filter visible nodes: always show hubs; hide children of collapsed hubs
+    const visibleBeliefs = beliefs.filter(b => {
+      if (b.node_type === 'hub') return true;
+      return !collapsed.has(b.belongs_to_hub);
+    });
+    const visibleIds = new Set(visibleBeliefs.map(b => b.id));
+
+    const nodes = visibleBeliefs.map(b => ({
+      id:         b.id,
+      name:       b.proposition,
+      node_type:  b.node_type,
+      isHub:      b.node_type === 'hub',
+      collapsed:  b.node_type === 'hub' && collapsed.has(b.id),
+      childCount: childCount[b.id] ?? 0,
+      color: b.status === 'conflicted' ? NODE_COLOR.conflicted
+           : b.status === 'deprecated' ? NODE_COLOR.deprecated
+           : (NODE_COLOR[b.node_type] ?? NODE_COLOR.belief),
+    }));
+
     const links = [];
-    
-    beliefs.forEach(b => {
-      // Lineage links
-      if (b.derived_from) {
-        b.derived_from.forEach(sourceId => {
-          if (beliefs.find(n => n.id === sourceId)) {
+
+    visibleBeliefs.forEach(b => {
+      // Hub spokes
+      if (b.belongs_to_hub && visibleIds.has(b.belongs_to_hub)) {
+        links.push({
+          source:     b.belongs_to_hub,
+          target:     b.id,
+          color:      b.node_type === 'synthesis'
+            ? 'rgba(129,140,248,0.5)'
+            : 'rgba(255,255,255,0.22)',
+          width:      b.node_type === 'synthesis' ? 1.5 : 1,
+          isHubSpoke: true,
+        });
+      }
+
+      // Synthesis provenance
+      if (b.node_type === 'synthesis' && Array.isArray(b.synthesis_of)) {
+        b.synthesis_of.forEach(sid => {
+          if (visibleIds.has(sid)) {
             links.push({
-              source: sourceId,
-              target: b.id,
-              type: 'derived',
-              color: 'rgba(255, 255, 255, 0.2)',
-              width: 1
+              source:    b.id,
+              target:    sid,
+              color:     'rgba(129,140,248,0.35)',
+              width:     1.2,
+              curvature: 0.25,
+            });
+          }
+        });
+      }
+
+      // Related-to (de-duplicated)
+      if (Array.isArray(b.related_to)) {
+        b.related_to.forEach(rid => {
+          if (visibleIds.has(rid) && b.id < rid) {
+            links.push({
+              source: b.id,
+              target: rid,
+              color:  'rgba(251,191,36,0.55)',
+              width:  1.5,
+              dashed: true,
             });
           }
         });
@@ -42,68 +211,45 @@ export default function BeliefGraph({ beliefs, conflicts, onNodeClick }) {
 
     // Conflict links
     conflicts.forEach(c => {
-      if (c.status === 'pending') {
+      if (c.status === 'pending' && visibleIds.has(c.belief_a_id) && visibleIds.has(c.belief_b_id)) {
         links.push({
           source: c.belief_a_id,
           target: c.belief_b_id,
-          type: 'conflict',
-          color: '#ef4444',
-          width: 3,
-          dash: [4, 4]
+          color:  '#f43f5e',
+          width:  2,
+          dashed: true,
         });
       }
     });
 
-    setGraphData({ nodes, links });
-  }, [beliefs, conflicts]);
-
-  const paintNode = useCallback((node, ctx, globalScale) => {
-    const label = node.name;
-    const fontSize = 12/globalScale;
-    ctx.font = `${fontSize}px Inter, sans-serif`;
-    
-    // Draw Node Circle
-    ctx.beginPath();
-    ctx.arc(node.x, node.y, 5, 0, 2 * Math.PI, false);
-    
-    // Use opacity based on confidence
-    ctx.globalAlpha = node.opacity;
-    ctx.fillStyle = node.color;
-    ctx.fill();
-    
-    if (node.status === 'conflicted') {
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = '#fff';
-      ctx.stroke();
-    }
-
-    ctx.globalAlpha = 1;
-
-    // Draw Label text
-    const textWidth = ctx.measureText(label).width;
-    const bckgDimensions = [textWidth, fontSize].map(n => n + fontSize * 0.2);
-    
-    ctx.fillStyle = 'rgba(10, 10, 12, 0.8)';
-    ctx.fillRect(node.x - bckgDimensions[0] / 2, node.y + 8 - bckgDimensions[1] / 2, ...bckgDimensions);
-
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = `rgba(255, 255, 255, ${Math.max(0.4, node.opacity)})`;
-    ctx.fillText(label, node.x, node.y + 8);
-  }, []);
+    setData({ nodes, links });
+  }, [beliefs, conflicts, collapsedHubs]);
 
   return (
     <ForceGraph2D
-      ref={graphRef}
-      graphData={graphData}
-      nodeCanvasObject={paintNode}
-      linkColor={link => link.color}
-      linkWidth={link => link.width}
-      linkLineDash={link => link.type === 'conflict' ? [4, 4] : null}
-      backgroundColor="#0a0a0c"
+      ref={fgRef}
+      graphData={data}
+      nodeVal={n => n.isHub ? 3.5 : 1}
+      nodeColor={n => n.color}
+      linkColor={l => l.color}
+      linkWidth={l => l.width ?? 1}
+      linkCurvature={l => l.curvature ?? 0}
+      linkDirectionalParticles={l => l.dashed && l.color === '#f43f5e' ? 3 : 0}
+      linkDirectionalParticleWidth={2}
+      linkDirectionalParticleColor={() => '#f43f5e'}
+      backgroundColor="#0d0d14"
       onNodeClick={onNodeClick}
-      d3AlphaDecay={0.02}
-      d3VelocityDecay={0.3}
+      nodeCanvasObject={drawNode}
+      nodeCanvasObjectMode={() => 'replace'}
+      linkCanvasObject={drawLink}
+      linkCanvasObjectMode={() => 'replace'}
+      nodePointerAreaPaint={(node, color, ctx) => {
+        const r = (node.isHub ? NODE_RADIUS + 4 : NODE_RADIUS) + 8;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
+        ctx.fill();
+      }}
     />
   );
 }
