@@ -140,3 +140,27 @@ class Trace(BaseModel):
     action: Literal["created", "confidence_updated", "conflict_detected", "consolidated", "deprecated"]
     timestamp: datetime = Field(default_factory=utc_now)
     details: str
+
+class Vault(BaseModel):
+    """
+    Represents a named vault (namespace/scope) for partitioning beliefs.
+
+    Attributes
+    ----------
+    id : str
+        Unique identifier for the vault.
+    name : str
+        Human-readable name used as the scope key.
+    description : Optional[str]
+        Optional description of the vault's purpose.
+    created_at : datetime
+        The time the vault was created.
+    updated_at : datetime
+        The time the vault was last updated.
+    """
+    id: str = Field(default_factory=generate_uuid)
+    name: str
+    description: Optional[str] = None
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+

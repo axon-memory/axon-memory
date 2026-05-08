@@ -210,6 +210,31 @@ class StorageLayer:
             return [self._row_to_belief(row) for row in rows]
 
     def search_similar(self, embedding: List[float], scope: str, top_k: int = 5) -> List[Tuple[Belief, float]]:
+        """Search for beliefs semantically similar to a given embedding vector.
+
+        Performs an L2 (Euclidean) nearest-neighbour search against the
+        ``vec_beliefs`` virtual table, restricted to *active* beliefs within
+        the specified scope.
+
+        Args:
+            embedding: A dense float vector (384 dimensions by default)
+                representing the query.  Typically produced by
+                :meth:`~axon_memory.embeddings.EmbeddingEngine.embed`.
+            scope: The vault / namespace to restrict the search to.
+            top_k: Maximum number of results to return.  Defaults to ``5``.
+
+        Returns:
+            A list of ``(Belief, distance)`` tuples ordered by ascending L2
+            distance.  Lower distance = higher semantic similarity.
+
+        Example:
+            ::
+
+                emb = axon.embeddings.embed("dark mode preference")
+                results = axon.storage.search_similar(emb, scope="global", top_k=3)
+                for belief, dist in results:
+                    print(f"{belief.proposition}  (L2={dist:.4f})")
+        """
         with self._get_connection() as conn:
             query = """
                 SELECT b.*, vec_distance_L2(v.embedding, ?) as distance

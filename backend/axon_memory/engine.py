@@ -13,6 +13,43 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 class AxonMemory:
+    """Central orchestrator for the Axon epistemic memory system.
+
+    ``AxonMemory`` is the single entry-point for all memory operations:
+    ingesting beliefs, searching the epistemic graph, resolving conflicts,
+    and running periodic consolidation.
+
+    The constructor wires together three pluggable subsystems:
+
+    * **StorageLayer** — persists beliefs, embeddings, conflicts, and traces
+      in SQLite (with ``sqlite-vec`` for vector search).
+    * **EmbeddingEngine** — converts text into dense 384-d vectors using
+      ``sentence-transformers``.
+    * **LLM Engine** — provides higher-order reasoning (relationship
+      evaluation, confidence scoring, hierarchy generation, importance
+      scoring, and synthesis).  The engine tries Ollama first, then Gemini,
+      and gracefully degrades to vector-only heuristics if neither is
+      available.
+
+    Example:
+        Basic initialisation with default settings::
+
+            from axon_memory.engine import AxonMemory
+
+            axon = AxonMemory()
+            belief = axon.believe("User prefers dark mode")
+            results = axon.search("UI preferences")
+
+        Custom database path and injected LLM::
+
+            from axon_memory.engine import AxonMemory
+            from axon_memory.llm import GeminiLLM
+
+            axon = AxonMemory(
+                db_path="./project.db",
+                llm_engine=GeminiLLM(api_key="sk-..."),
+            )
+    """
     def __init__(
         self, 
         db_path: str = "~/.axon/memory.db",
@@ -20,6 +57,34 @@ class AxonMemory:
         embedding_engine: Optional[BaseEmbeddingEngine] = None,
         llm_engine: Optional[BaseLLMEngine] = None
     ):
+        """Initialise the Axon Memory engine.
+
+        Args:
+            db_path: Filesystem path for the SQLite database.  Supports
+                ``~`` expansion.  Parent directories are created automatically.
+                Defaults to ``~/.axon/memory.db``.
+            storage_engine: Custom storage backend implementing
+                :class:`~axon_memory.interfaces.BaseStorageLayer`.  When
+                ``None``, a default :class:`~axon_memory.storage.StorageLayer`
+                is created using *db_path*.
+            embedding_engine: Custom embedding backend implementing
+                :class:`~axon_memory.interfaces.BaseEmbeddingEngine`.  When
+                ``None``, a default
+                :class:`~axon_memory.embeddings.EmbeddingEngine` is created
+                using ``all-MiniLM-L6-v2``.
+            llm_engine: Custom LLM backend implementing
+                :class:`~axon_memory.interfaces.BaseLLMEngine`.  When ``None``,
+                the constructor tries Ollama → Gemini → no-LLM fallback.
+
+        Raises:
+            RuntimeError: If the underlying storage layer cannot initialise
+                the SQLite database (e.g. permission errors).
+
+        Example:
+            ::
+
+                axon = AxonMemory(db_path="/tmp/test.db")
+        """
         self.storage = storage_engine if storage_engine else StorageLayer(db_path=db_path)
         self.embeddings = embedding_engine if embedding_engine else EmbeddingEngine()
         
@@ -68,12 +133,31 @@ class AxonMemory:
         return hub.id
 
     def _decay_confidence(self, belief: Belief) -> float:
-        """
-        Calculates the current confidence based on exponential decay.
-        R(t) = initial_confidence * e^(-t/S)
-        where t is hours since last update, and S is half_life_hrs / ln(2).
-        Wait, standard half-life formula is N(t) = N0 * (1/2)^(t/h)
-        Which is equivalent to N0 * exp(-t * ln(2) / h).
+        """Calculate the current confidence of a belief after exponential decay.
+
+        Implements the standard half-life formula:
+
+        .. math::
+
+            C(t) = C_0 \times \left(\frac{1}{2}\right)^{t \;/\; h}
+
+        where *C₀* is the stored confidence, *t* is hours elapsed since the
+        last update, and *h* is the belief's ``half_life_hrs``.
+
+        Non-active beliefs (``deprecated``, ``conflicted``, ``consolidated``)
+        are returned with their stored confidence unchanged.
+
+        Args:
+            belief: The belief whose confidence should be decayed.
+
+        Returns:
+            The decayed confidence value (``0.0`` – ``1.0``).
+
+        Example:
+            ::
+
+                raw_belief = axon.storage.get_belief(some_id)
+                effective_confidence = axon._decay_confidence(raw_belief)
         """
         if belief.status != "active":
             return belief.confidence
@@ -99,8 +183,55 @@ class AxonMemory:
         confidence: Optional[float] = None,
         half_life_hrs: float = 720.0
     ) -> Belief:
-        """
-        Ingest a new belief into the epistemic system.
+        """Ingest a new belief into the epistemic memory graph.
+
+        This is the primary write method.  It performs the following pipeline:
+
+        1. **Embed** the proposition using the embedding engine.
+        2. **Classify** the proposition into a ``[Theme, Sub-theme]`` hierarchy
+           (LLM-powered with keyword guard-rails).
+        3. **Score** the proposition's importance (``0.0`` – ``1.0``).
+        4. **Assign** the belief to a hub node (created on-demand).
+        5. **Search** for semantically similar existing beliefs (L2 < 0.85).
+        6. **Classify relationships** via LLM (or distance fallback):
+
+           - *EQUIVALENT* → reinforce the existing belief (Bayesian confidence
+             bump) and return it.
+           - *CONFLICTING* → create a :class:`~axon_memory.models.Conflict`
+             record and link the beliefs.
+           - *RELATED* → add bidirectional ``related_to`` edges.
+           - *UNRELATED* → save as a brand-new belief.
+        7. **Persist** the belief, embedding, and an audit trace.
+
+        Args:
+            proposition: The textual claim to store (e.g.
+                ``"User prefers dark mode"``).
+            scope: Namespace / vault name.  Defaults to ``"global"``.
+            source: Origin of the belief.  One of ``"user_explicit"``,
+                ``"agent_inferred"``, or ``"tool_result"``.
+            evidence: Free-text evidence supporting the proposition.  Used by
+                the LLM to evaluate confidence when *confidence* is ``None``.
+            tags: Optional list of string tags for manual categorisation.
+            confidence: Explicit confidence override (``0.0`` – ``1.0``).  When
+                ``None``, confidence is derived from *source* and *evidence*.
+            half_life_hrs: Half-life in hours for exponential confidence decay.
+                Defaults to ``720.0`` (30 days).
+
+        Returns:
+            The saved (or reinforced) :class:`~axon_memory.models.Belief`
+            instance with all computed fields populated.
+
+        Example:
+            ::
+
+                belief = axon.believe(
+                    proposition="The API uses FastAPI",
+                    source="user_explicit",
+                    evidence="Confirmed in the project README.",
+                    tags=["architecture"],
+                )
+                print(belief.hierarchy)   # e.g. ['Development', 'Backend']
+                print(belief.importance)  # e.g. 0.75
         """
         if tags is None:
             tags = []
@@ -341,11 +472,39 @@ class AxonMemory:
         return beliefs
 
     def consolidate(self, scope: str = "global"):
-        """
-        Performs periodic memory consolidation:
-        1. Groups active beliefs by theme/hub.
-        2. Identifies contradictions missed at ingest time.
-        3. Generates synthesis nodes for clusters.
+        """Run periodic memory consolidation for a given scope.
+
+        Consolidation is a background-maintenance operation that:
+
+        1. **Groups** all active, non-hub beliefs by their ``belongs_to_hub``.
+        2. **Generates synthesis nodes** — for every hub cluster with ≥ 2
+           beliefs, the LLM produces a concise summary that is stored as a
+           new :class:`~axon_memory.models.Belief` with
+           ``node_type='synthesis'``.
+        3. **Records traces** — every belief that participates in a synthesis
+           receives a ``consolidated`` trace entry for auditability.
+
+        If a synthesis node already exists for a hub, it is **updated in
+        place** rather than duplicated.
+
+        Args:
+            scope: The vault / namespace to consolidate.  Defaults to
+                ``"global"``.
+
+        Note:
+            Consolidation requires an LLM engine.  If no LLM is configured,
+            the method completes without generating synthesis nodes but still
+            logs the grouping step.
+
+        Example:
+            ::
+
+                axon.consolidate(scope="global")
+
+                # Inspect the generated synthesis nodes
+                for b in axon.get_beliefs():
+                    if b.node_type == "synthesis":
+                        print(b.proposition, b.synthesis_of)
         """
         logger.info(f"Starting memory consolidation for scope: {scope}")
         all_beliefs = self.storage.get_beliefs_by_scope(scope)
