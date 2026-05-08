@@ -153,59 +153,101 @@ You can also inject a fully custom LLM by implementing the
 
 ---------
 
-Data Flow & Architecture
-========================
+Architecture Diagrams
+=====================
 
-The following diagram shows the lifecycle of a belief from ingestion to
-retrieval and consolidation.
+The system is best understood as three distinct workflows.  Each diagram below
+uses a **top-down** layout optimised for readability on any screen size.
+
+.. _diagram-ingestion:
+
+Diagram 1 — Ingestion Flow
+----------------------------
+
+How a new belief travels from raw text to persistent storage.
 
 .. mermaid::
 
-   flowchart TB
-       subgraph Ingestion ["① Ingestion — believe()"]
-           A["Agent / User / Tool<br/>submits a proposition"] --> B["EmbeddingEngine<br/>generates 384-d vector"]
-           B --> C{"LLM Available?"}
-           C -- Yes --> D["LLM evaluates:<br/>• Hierarchy<br/>• Importance<br/>• Confidence"]
-           C -- No --> E["Keyword fallback<br/>+ default scores"]
-           D --> F["Hub Assignment<br/>get_or_create_hub()"]
-           E --> F
+   graph TD
+       A["🗣️ Source<br/><i>User / Agent / Tool</i>"]
+       B["📐 EmbeddingEngine<br/>all-MiniLM-L6-v2<br/><i>384-d vector</i>"]
+       C{"🤖 LLM<br/>available?"}
+       D["✨ LLM Enrichment<br/>• Hierarchy<br/>• Importance<br/>• Confidence"]
+       E["🔑 Keyword Fallback<br/>+ default scores"]
+       F["🏷️ Hub Assignment<br/><code>get_or_create_hub()</code>"]
+       G["🔍 Dedup Search<br/>top-5 similar beliefs<br/><i>L2 ≤ 0.85</i>"]
+       H{"Relationship?"}
+       I["✅ EQUIVALENT<br/>Reinforce existing<br/><i>Bayesian bump</i>"]
+       J["⚠️ CONFLICTING<br/>Create Conflict<br/>+ link beliefs"]
+       K["🔗 RELATED<br/>Bidirectional edges"]
+       L["🆕 NEW BELIEF<br/>Save to storage"]
+
+       A --> B --> C
+       C -- Yes --> D --> F
+       C -- No --> E --> F
+       F --> G --> H
+       H -- Equivalent --> I
+       H -- Conflicting --> J
+       H -- Related --> K
+       H -- Unrelated --> L
+
+.. _diagram-retrieval:
+
+Diagram 2 — Intelligence & Retrieval Loop
+-------------------------------------------
+
+How a query is answered — from natural language to a confidence-ranked result
+set.
+
+.. mermaid::
+
+   graph LR
+       Q["🔎 Query<br/><i>natural language string</i>"]
+       E["📐 EmbeddingEngine<br/>embed query → 384-d vector"]
+       V["⚡ sqlite-vec<br/>L2 nearest-neighbour<br/><i>scoped to vault</i>"]
+       D["📉 Confidence Decay<br/><i>C(t) = C₀ × (½)^(t/h)</i>"]
+       R["📋 Ranked Results<br/>List[Belief]"]
+
+       Q --> E --> V --> D --> R
+
+.. _diagram-tiering:
+
+Diagram 3 — Memory Tiering & Lifecycle
+-----------------------------------------
+
+Beliefs are not static.  They move through lifecycle states — from hot (active)
+to warm (consolidated) to cold (deprecated) — based on age, confidence, and
+conflict resolution.
+
+.. mermaid::
+
+   graph TD
+       subgraph HOT ["🔴 Hot — Active Beliefs"]
+           A1["Active Belief<br/><i>high confidence</i><br/><i>recently updated</i>"]
        end
 
-       subgraph Dedup ["② Deduplication & Conflict Detection"]
-           F --> G["Vector Search<br/>top-5 similar beliefs<br/>(L2 < 0.85)"]
-           G --> H{"LLM classifies<br/>relationship"}
-           H -- EQUIVALENT --> I["Reinforce existing belief<br/>Bayesian confidence bump"]
-           H -- CONFLICTING --> J["Create Conflict record<br/>+ link beliefs"]
-           H -- RELATED --> K["Add bidirectional<br/>related_to edges"]
-           H -- UNRELATED --> L["Save as new belief"]
+       subgraph WARM ["🟡 Warm — Consolidated"]
+           B1["Synthesis Node<br/><i>cluster summary</i>"]
+           B2["Consolidated Belief<br/><i>grouped under hub</i>"]
        end
 
-       subgraph Storage ["③ Persistence — StorageLayer"]
-           I --> M["SQLite<br/>(beliefs, conflicts, traces)"]
-           J --> M
-           K --> M
-           L --> M
-           M --- N["sqlite-vec<br/>Virtual Table<br/>(vec_beliefs)"]
+       subgraph COLD ["🔵 Cold — Deprecated"]
+           C1["Deprecated Belief<br/><i>lost conflict</i>"]
+           C2["Decayed Belief<br/><i>confidence → 0</i>"]
        end
 
-       subgraph Retrieval ["④ Retrieval — search()"]
-           O["Query string"] --> P["EmbeddingEngine<br/>generates query vector"]
-           P --> Q["sqlite-vec L2 search<br/>scoped to vault"]
-           Q --> R["Apply exponential<br/>confidence decay"]
-           R --> S["Return ranked<br/>Belief list"]
-       end
+       A1 -- "consolidate()<br/><i>LLM synthesis</i>" --> B1
+       A1 -- "grouped by hub" --> B2
+       A1 -- "conflict resolved<br/><i>loser deprecated</i>" --> C1
+       A1 -- "time passes<br/><i>no reinforcement</i>" --> C2
+       B2 -- "new evidence<br/><i>re-activated</i>" --> A1
 
-       subgraph Consolidation ["⑤ Consolidation — consolidate()"]
-           T["Periodic trigger"] --> U["Group active beliefs<br/>by Hub"]
-           U --> V["LLM generates<br/>Synthesis Node<br/>per cluster"]
-           V --> W["Save synthesis +<br/>consolidation traces"]
-       end
 
-       Storage --> Retrieval
-       Storage --> Consolidation
+
+---------
 
 Step-by-Step Walkthrough
-------------------------
+========================
 
 1. **Ingestion** — ``AxonMemory.believe()`` accepts a proposition, embeds it
    via ``sentence-transformers`` (``all-MiniLM-L6-v2``, 384 dimensions), and
@@ -237,6 +279,10 @@ Step-by-Step Walkthrough
    their hub, sends each cluster to the LLM to produce a **synthesis node**
    (a concise summary), and writes consolidation traces for auditability.
 
+6. **Tiering** — Over time, beliefs naturally transition through lifecycle
+   states: **active → consolidated → deprecated**.  Conflict resolution
+   accelerates this process by explicitly deprecating the losing belief.
+
 ---------
 
 Module Overview
@@ -252,7 +298,7 @@ Module Overview
      - **Core orchestrator.** ``AxonMemory`` class — the single entry point for
        all operations (believe, search, consolidate, resolve conflicts).
    * - ``axon_memory.models``
-     - Pydantic data models: ``Belief``, ``Conflict``, ``Trace``.
+     - Pydantic data models: ``Belief``, ``Conflict``, ``Trace``, ``Vault``.
    * - ``axon_memory.interfaces``
      - Abstract base classes (``BaseStorageLayer``, ``BaseEmbeddingEngine``,
        ``BaseLLMEngine``) defining the pluggable contract.
