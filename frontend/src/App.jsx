@@ -289,9 +289,11 @@ function AddBeliefModal({ onClose, onAdd, beliefs, currentScope }) {
     e.preventDefault();
     if (!proposition.trim()) return;
     setLoading(true);
-    await onAdd({ proposition: proposition.trim(), source, evidence: evidence.trim() || null, hubOverride });
+    const success = await onAdd({ proposition: proposition.trim(), source, evidence: evidence.trim() || null, hubOverride });
     setLoading(false);
-    onClose();
+    if (success) {
+      onClose();
+    }
   };
 
   return (
@@ -495,11 +497,16 @@ export default function App() {
       if (r.ok) {
         await fetchAll();
         showToast('Belief added');
+        return true;
       } else {
         const err = await r.json().catch(() => ({}));
         showToast(err.detail || 'Failed to add belief', true);
+        return false;
       }
-    } catch { showToast('Failed to add belief', true); }
+    } catch { 
+      showToast('Connection failed. Backend may be down or CORS blocked.', true); 
+      return false; 
+    }
   };
 
   const handleEditBelief = async (beliefId, updates) => {
@@ -597,6 +604,17 @@ export default function App() {
           collapsedHubs={collapsedHubs}
           onNodeClick={handleNodeClick}
         />
+        {displayBeliefs.length === 0 && !searchResults && (
+          <div className="onboarding-overlay">
+            <h2>Welcome to Axon Memory</h2>
+            <p>Your epistemic graph is currently empty.</p>
+            <ol style={{textAlign: 'left', display: 'inline-block', color: 'var(--text-dim)'}}>
+              <li>Click the <strong>+</strong> button below to add your first belief.</li>
+              <li>Add related beliefs to watch them automatically group into <strong>Hubs</strong>.</li>
+              <li>Add contradictory beliefs to test <strong>Auto-Resolution</strong> policies.</li>
+            </ol>
+          </div>
+        )}
         <div className="canvas-hint">
           {searchResults ? `Showing ${searchResults.length} search results` : 'Scroll to zoom · Drag to pan · Click hub to collapse · Click belief to inspect'}
         </div>

@@ -23,6 +23,21 @@ html, body, #root {
   pointer-events: none; user-select: none;
 }
 
+.onboarding-overlay {
+  position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(18, 18, 25, 0.9);
+  padding: 40px; border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.06);
+  text-align: center;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  pointer-events: none;
+  z-index: 10;
+}
+.onboarding-overlay h2 { margin-bottom: 8px; font-weight: 500; color: #fff; }
+.onboarding-overlay p { margin-bottom: 20px; color: var(--text-muted); }
+.onboarding-overlay li { margin: 8px 0; }
+
 /* ─── FAB (+ Add Belief) ────────────────────────── */
 .fab {
   position: absolute; bottom: 20px; right: 20px;

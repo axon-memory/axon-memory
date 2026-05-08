@@ -6,6 +6,7 @@ from axon_memory.models import Belief, Conflict, Trace, Vault
 from axon_memory.server.schemas import (
     BelieveRequest,
     BatchBelieveRequest,
+    BeliefUpdateRequest,
     MergeConflictRequest,
     ResolutionPolicy,
     PolicyRequest,
