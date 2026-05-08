@@ -150,11 +150,3 @@ fallback — ready for production use:
    :caption: Project
 
    changelog
-
-
-Indices and Tables
-==================
-
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
