@@ -202,10 +202,10 @@ set.
 .. mermaid::
 
    graph LR
-       Q["🔎 Query<br/><i>natural language string</i>"]
-       E["📐 EmbeddingEngine<br/>embed query → 384-d vector"]
-       V["⚡ sqlite-vec<br/>L2 nearest-neighbour<br/><i>scoped to vault</i>"]
-       D["📉 Confidence Decay<br/><i>C(t) = C₀ × (½)^(t/h)</i>"]
+       Q["🔎 Query<br/><i>natural language<br/>string</i>"]
+       E["📐 EmbeddingEngine<br/>embed query<br/>→ 384-d vector"]
+       V["⚡ sqlite-vec<br/>L2 nearest-<br/>neighbour<br/><i>scoped to vault</i>"]
+       D["📉 Confidence Decay<br/><i>C(t) = C₀<br/>× (½)^(t/h)</i>"]
        R["📋 Ranked Results<br/>List[Belief]"]
 
        Q --> E --> V --> D --> R

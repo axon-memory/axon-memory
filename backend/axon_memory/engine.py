@@ -133,7 +133,7 @@ class AxonMemory:
         return hub.id
 
     def _decay_confidence(self, belief: Belief) -> float:
-        """Calculate the current confidence of a belief after exponential decay.
+        r"""Calculate the current confidence of a belief after exponential decay.
 
         Implements the standard half-life formula:
 
