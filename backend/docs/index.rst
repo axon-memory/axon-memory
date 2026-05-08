@@ -18,10 +18,6 @@ your agent the ability to **store beliefs**, **track confidence over time**,
 **detect contradictions**, and **consolidate knowledge** — exactly the way a
 thoughtful human would manage what they know and what they are less sure about.
 
-This documentation is written so that a developer with **zero prior knowledge**
-of this project, memory systems, or agentic architecture can get up to speed
-quickly.
-
 .. admonition:: What You'll Find Here
 
    * **Concepts** — The *why* and the *what*: core ideas, terminology, and
