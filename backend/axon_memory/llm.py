@@ -37,6 +37,21 @@ class GeminiLLM(BaseLLMEngine):
         
         self.client = genai.Client(api_key=self.api_key)
 
+    def _retry_generate_content(self, *args, **kwargs):
+        """Helper to retry API calls on 429 Rate Limit Exhausted."""
+        import time
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                return self.client.models.generate_content(*args, **kwargs)
+            except Exception as e:
+                if "429" in str(e) and attempt < max_retries - 1:
+                    wait_time = 15 * (attempt + 1)
+                    logger.warning(f"Rate limit hit (429), retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+                else:
+                    raise e
+
     def evaluate_relationship(self, proposition_a: str, proposition_b: str) -> Literal["EQUIVALENT", "CONFLICTING", "RELATED", "UNRELATED"]:
         """
         Evaluates the semantic relationship between two propositions using Gemini.
@@ -69,7 +84,7 @@ class GeminiLLM(BaseLLMEngine):
         """
         
         try:
-            response = self.client.models.generate_content(
+            response = self._retry_generate_content(
                 model=self.model_name,
                 contents=prompt,
                 config=types.GenerateContentConfig(
@@ -125,7 +140,7 @@ class GeminiLLM(BaseLLMEngine):
         """
         
         try:
-            response = self.client.models.generate_content(
+            response = self._retry_generate_content(
                 model=self.model_name,
                 contents=prompt,
                 config=types.GenerateContentConfig(
@@ -162,7 +177,7 @@ class GeminiLLM(BaseLLMEngine):
         Return ONLY a comma-separated string in this exact format: Theme, Sub-theme
         """
         try:
-            response = self.client.models.generate_content(
+            response = self._retry_generate_content(
                 model=self.model_name,
                 contents=prompt,
                 config=types.GenerateContentConfig(
@@ -208,7 +223,7 @@ class GeminiLLM(BaseLLMEngine):
         Return ONLY the synthesis string (max 20 words). Do not include "Synthesis:" or any other preamble.
         """
         try:
-            response = self.client.models.generate_content(
+            response = self._retry_generate_content(
                 model=self.model_name,
                 contents=prompt,
                 config=types.GenerateContentConfig(temperature=0.3)
@@ -243,7 +258,7 @@ class GeminiLLM(BaseLLMEngine):
         Return ONLY a number between 0.0 and 1.0.
         """
         try:
-            response = self.client.models.generate_content(
+            response = self._retry_generate_content(
                 model=self.model_name,
                 contents=prompt,
                 config=types.GenerateContentConfig(temperature=0.0)

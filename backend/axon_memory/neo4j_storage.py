@@ -30,6 +30,7 @@ class Neo4jStorageLayer(BaseStorageLayer):
         # Create vector index on Belief embeddings
         with self.driver.session() as session:
             try:
+                session.run("DROP INDEX belief_embeddings IF EXISTS")
                 session.run(f"""
                 CREATE VECTOR INDEX belief_embeddings IF NOT EXISTS
                 FOR (b:Belief) ON (b.embedding)
