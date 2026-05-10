@@ -26,19 +26,6 @@ Requires a ``GEMINI_API_KEY`` environment variable.
 
 ---------
 
-``axon_memory.llm_local`` — Ollama LLM Engine
-==============================================
-
-Local LLM engine using Ollama (``llama3.2:1b`` by default). No API key needed —
-just a running Ollama daemon.
-
-.. automodule:: axon_memory.llm_local
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
----------
-
 ``axon_memory.embeddings`` — Embedding Engine
 =============================================
 

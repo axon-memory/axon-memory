@@ -31,6 +31,21 @@ vector search via ``sqlite-vec`` virtual tables.
 An alternative storage implementation using a Neo4j graph database. Manages graph
 edges naturally and utilizes Neo4j's vector indexes for similarity search.
 
+**Usage Example:**
+
+.. code-block:: python
+
+   from axon_memory.engine import AxonMemory
+   from axon_memory.neo4j_storage import Neo4jStorageLayer
+
+   neo4j_store = Neo4jStorageLayer(
+       uri="bolt://localhost:7687",
+       user="neo4j",
+       password="password"
+   )
+   
+   axon = AxonMemory(storage_layer=neo4j_store)
+
 .. automodule:: axon_memory.neo4j_storage
    :members:
    :undoc-members:

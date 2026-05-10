@@ -58,15 +58,20 @@ The constructor automatically:
 
 .. note::
 
-   You can override any component by passing your own implementations:
+   You can override any component by passing your own implementations, for example, using a **Neo4j** cluster instead of SQLite for production-scale workloads:
 
    .. code-block:: python
 
+      from axon_memory.neo4j_storage import Neo4jStorageLayer
+      
+      neo4j_store = Neo4jStorageLayer(
+          uri="bolt://localhost:7687", 
+          user="neo4j", 
+          password="password"
+      )
+
       axon = AxonMemory(
-          db_path="./my_project.db",
-          storage_engine=my_custom_storage,
-          embedding_engine=my_custom_embedder,
-          llm_engine=my_custom_llm,
+          storage_layer=neo4j_store,
       )
 
 Step 2 — Add Your First Belief
@@ -220,11 +225,18 @@ tool-based integration with AI agents:
 
    uv run python -m axon_memory.server.mcp
 
-The MCP server exposes three tools:
+The MCP server exposes nine essential tools:
 
-* ``believe`` — Store a belief.
+* ``believe`` — Store a single belief.
+* ``remember_batch`` — Store multiple beliefs at once for efficiency.
 * ``search_beliefs`` — Search for relevant beliefs.
-* ``consolidate_memory`` — Run memory consolidation.
+* ``get_belief`` — Retrieve a specific belief by its ID.
+* ``retract_belief`` — Retract/delete a belief from memory.
+* ``get_conflicts`` — List all pending conflicts that need resolution.
+* ``resolve_conflict`` — Resolve a conflict by keeping belief A or B.
+* ``merge_conflict`` — Resolve a conflict by merging both beliefs into a new one.
+* ``consolidate_memory`` — Run memory consolidation (groups beliefs, generates synthesis).
+* ``get_usage`` — Check LLM usage budget.
 
 ---------
 

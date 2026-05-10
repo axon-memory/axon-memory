@@ -8,6 +8,9 @@ import sys
 # Add the backend root so that ``import axon_memory`` works during autodoc.
 sys.path.insert(0, os.path.abspath(".."))
 
+# Set a dummy API key so autodoc can import modules that initialize the engine at module level
+os.environ["GEMINI_API_KEY"] = "dummy_sphinx_key_for_autodoc_only"
+
 # -- Project Information -----------------------------------------------------
 project = "Axon Memory"
 copyright = "2026, Axon Memory Contributors"
@@ -73,6 +76,7 @@ autodoc_mock_imports = [
     "uvicorn",
     "mcp",
     "fastapi",
+    "neo4j",
 ]
 
 # -- Autosummary Settings ----------------------------------------------------

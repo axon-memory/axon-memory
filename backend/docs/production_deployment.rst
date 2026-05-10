@@ -146,6 +146,34 @@ After ``docker compose up -d``, pull the LLM model:
 
 ---------
 
+Using Neo4j in Production
+=========================
+
+For high-throughput, horizontally scalable deployments, you can swap out the default SQLite backend for a Neo4j cluster. This is recommended if you expect to store over 500,000 beliefs or need high-availability.
+
+1. **Deploy Neo4j**: Use the official Neo4j Docker image or Neo4j AuraDB.
+2. **Set Credentials**: Pass the URI, username, and password via environment variables.
+3. **Configure the Engine**:
+
+   .. code-block:: python
+
+      import os
+      from axon_memory.engine import AxonMemory
+      from axon_memory.neo4j_storage import Neo4jStorageLayer
+
+      neo4j_store = Neo4jStorageLayer(
+          uri=os.environ.get("NEO4J_URI", "bolt://localhost:7687"),
+          user=os.environ.get("NEO4J_USER", "neo4j"),
+          password=os.environ.get("NEO4J_PASSWORD", "password")
+      )
+
+      axon = AxonMemory(storage_layer=neo4j_store)
+
+.. warning::
+   When using Neo4j, you do not need to configure ``AXON_DB_PATH`` or mount a volume for SQLite. The ``sqlite-vec`` memory planning estimates below do not apply to Neo4j.
+
+---------
+
 Environment Variables
 ======================
 

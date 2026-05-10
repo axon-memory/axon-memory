@@ -1,0 +1,77 @@
+Running Sphinx v9.1.0
+loading translations [en]... done
+Converting `source_suffix = '.rst'` to `source_suffix = {'.rst': 'restructuredtext'}`.
+loading pickled environment... The configuration has changed (2 options: 'html_css_files', 'pygments_dark_style')
+done
+[autosummary] generating autosummary for: api/core.rst, api/index.rst, api/intelligence.rst, api/server.rst, api/storage.rst, changelog.rst, concepts.rst, index.rst, production_deployment.rst, quickstart.rst, troubleshooting.rst
+# 2026-05-10 14:07:58,131 INFO axon_memory.engine engine.py:188 -- Initializing SQLite storage backend
+
+# 2026-05-10 14:07:58,132 INFO axon_memory.embeddings embeddings.py:45 -- Loading Gemini embedding model: gemini-embedding-2
+
+# 2026-05-10 14:07:58,132 INFO axon_memory.embeddings embeddings.py:48 -- Model loaded. Embedding dimension: 768
+
+# 2026-05-10 14:07:58,132 INFO axon_memory.engine engine.py:199 -- Initialized Gemini LLM
+
+# 2026-05-10 14:07:58,134 INFO axon_memory.engine engine.py:188 -- Initializing SQLite storage backend
+
+# 2026-05-10 14:07:58,135 INFO axon_memory.embeddings embeddings.py:45 -- Loading Gemini embedding model: gemini-embedding-2
+
+# 2026-05-10 14:07:58,135 INFO axon_memory.embeddings embeddings.py:48 -- Model loaded. Embedding dimension: 768
+
+# 2026-05-10 14:07:58,135 INFO axon_memory.engine engine.py:199 -- Initialized Gemini LLM
+
+building [mo]: targets for 0 po files that are out of date
+writing output... 
+building [html]: targets for 0 source files that are out of date
+updating environment: 0 added, 3 changed, 0 removed
+reading sources... [ 33%] api/core
+reading sources... [ 67%] api/intelligence
+reading sources... [100%] api/storage
+
+looking for now-outdated files... none found
+pickling environment... done
+checking consistency... done
+preparing documents... done
+copying assets... 
+copying static files... 
+Writing evaluated template result to /home/meher/Desktop/Personal Projects/axon-memory/backend/docs/_build/html/_static/basic.css
+Writing evaluated template result to /home/meher/Desktop/Personal Projects/axon-memory/backend/docs/_build/html/_static/language_data.js
+Writing evaluated template result to /home/meher/Desktop/Personal Projects/axon-memory/backend/docs/_build/html/_static/documentation_options.js
+copying static files: done
+copying extra files... 
+copying extra files: done
+copying assets: done
+writing output... [ 25%] api/core
+writing output... [ 50%] api/index
+writing output... [ 75%] api/intelligence
+writing output... [100%] api/storage
+
+generating indices... genindex py-modindex done
+highlighting module code... [  9%] axon_memory.embeddings
+highlighting module code... [ 18%] axon_memory.engine
+highlighting module code... [ 27%] axon_memory.interfaces
+highlighting module code... [ 36%] axon_memory.llm
+highlighting module code... [ 45%] axon_memory.models
+highlighting module code... [ 55%] axon_memory.neo4j_storage
+highlighting module code... [ 64%] axon_memory.server.mcp
+highlighting module code... [ 73%] axon_memory.server.schemas
+highlighting module code... [ 82%] axon_memory.storage
+highlighting module code... [ 91%] fastapi.FastAPI
+highlighting module code... [100%] mcp.server.fastmcp.FastMCP
+
+writing additional pages... search done
+dumping search index in English (code: en)... done
+dumping object inventory... done
+
+====================== total reading duration ==========================
+Total time reading 3 files: 0m 1.665s
+
+
+====================== slowest reading durations =======================
+1.024s api/core
+0.534s api/storage
+0.107s api/intelligence
+
+build succeeded.
+
+The HTML pages are in _build/html.

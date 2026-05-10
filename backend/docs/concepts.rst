@@ -308,8 +308,7 @@ Module Overview
      - Sentence-transformer implementation of ``BaseEmbeddingEngine``.
    * - ``axon_memory.llm``
      - Google Gemini implementation of ``BaseLLMEngine``.
-   * - ``axon_memory.llm_local``
-     - Ollama (local) implementation of ``BaseLLMEngine``.
+
    * - ``axon_memory.server.api``
      - FastAPI REST endpoints exposing the engine over HTTP.
    * - ``axon_memory.server.mcp``
