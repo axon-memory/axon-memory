@@ -16,6 +16,20 @@ class Neo4jStorageLayer(BaseStorageLayer):
     """
     
     def __init__(self, uri: str = None, user: str = None, password: str = None, embedding_dim: int = 768):
+        """
+        Initialize the Neo4j storage layer.
+
+        Parameters
+        ----------
+        uri : str, optional
+            The Neo4j connection URI.
+        user : str, optional
+            The Neo4j database user.
+        password : str, optional
+            The Neo4j database password.
+        embedding_dim : int, optional
+            The dimension of the embedding vectors, by default 768.
+        """
         self.uri = uri or os.getenv("NEO4J_URI", "bolt://localhost:7687")
         self.user = user or os.getenv("NEO4J_USER", "neo4j")
         self.password = password or os.getenv("NEO4J_PASSWORD", "password")
@@ -24,9 +38,20 @@ class Neo4jStorageLayer(BaseStorageLayer):
         self._init_schema(embedding_dim)
 
     def close(self):
+        """
+        Close the Neo4j database driver connection.
+        """
         self.driver.close()
 
     def _init_schema(self, dim: int):
+        """
+        Initialize the Neo4j schema including vector indexes.
+
+        Parameters
+        ----------
+        dim : int
+            The dimension of the embedding vector index.
+        """
         # Create vector index on Belief embeddings
         with self.driver.session() as session:
             try:
@@ -47,6 +72,27 @@ class Neo4jStorageLayer(BaseStorageLayer):
                 logger.error(f"Failed to initialize Neo4j schema: {e}")
 
     def _dict_to_belief(self, b_props: dict, derived_from: list, synthesis_of: list, conflicts_with: list, related_to: list) -> Belief:
+        """
+        Convert a dictionary of properties and relations into a Belief model.
+
+        Parameters
+        ----------
+        b_props : dict
+            Node properties from Neo4j.
+        derived_from : list
+            List of derived_from IDs.
+        synthesis_of : list
+            List of synthesis_of IDs.
+        conflicts_with : list
+            List of conflicts_with IDs.
+        related_to : list
+            List of related_to IDs.
+
+        Returns
+        -------
+        Belief
+            The constructed Belief model.
+        """
         # Convert datetime strings back to datetime objects if needed
         # Neo4j python driver returns neo4j.time.DateTime, which we can convert to standard datetime
         
@@ -164,6 +210,21 @@ class Neo4jStorageLayer(BaseStorageLayer):
                 session.run("MATCH (b:Belief {id: $bid}), (h:Belief {id: $hub_id}) MERGE (b)-[:BELONGS_TO]->(h)", bid=belief.id, hub_id=belief.belongs_to_hub)
 
     def _fetch_belief_query(self, match_clause: str, params: dict) -> List[Belief]:
+        """
+        Execute a match query and retrieve the corresponding beliefs.
+
+        Parameters
+        ----------
+        match_clause : str
+            The Cypher match clause.
+        params : dict
+            The query parameters.
+
+        Returns
+        -------
+        list of Belief
+            A list of constructed Belief objects.
+        """
         query = f"""
         {match_clause}
         OPTIONAL MATCH (b)-[:DERIVED_FROM]->(d)

@@ -17,6 +17,23 @@ class EmbeddingEngine(BaseEmbeddingEngine):
     """
 
     def __init__(self, model_name: str = "gemini-embedding-2", api_key: str = None):
+        """
+        Initialize the embedding engine using the Gemini API.
+
+        Parameters
+        ----------
+        model_name : str, optional
+            The name of the embedding model to use, by default "gemini-embedding-2".
+        api_key : str, optional
+            The Gemini API key. If None, it will be read from the GEMINI_API_KEY environment variable.
+
+        Raises
+        ------
+        ImportError
+            If google-genai is not installed.
+        ValueError
+            If GEMINI_API_KEY is missing.
+        """
         if genai is None:
             raise ImportError("google-genai is not installed. Run `uv add google-genai`.")
             
@@ -31,6 +48,19 @@ class EmbeddingEngine(BaseEmbeddingEngine):
         logger.info(f"Model loaded. Embedding dimension: {self.embedding_dimension}")
 
     def embed(self, text: str) -> List[float]:
+        """
+        Generate an embedding vector for a single string.
+
+        Parameters
+        ----------
+        text : str
+            The input string to embed.
+
+        Returns
+        -------
+        list of float
+            The generated embedding vector.
+        """
         response = self.client.models.embed_content(
             model=self.model_name,
             contents=text,
@@ -39,6 +69,19 @@ class EmbeddingEngine(BaseEmbeddingEngine):
         return response.embeddings[0].values
 
     def embed_batch(self, texts: List[str]) -> List[List[float]]:
+        """
+        Generate embedding vectors for a list of strings.
+
+        Parameters
+        ----------
+        texts : list of str
+            The list of input strings to embed.
+
+        Returns
+        -------
+        list of list of float
+            A list of generated embedding vectors.
+        """
         response = self.client.models.embed_content(
             model=self.model_name,
             contents=texts,

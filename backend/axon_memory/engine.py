@@ -16,8 +16,18 @@ logger = logging.getLogger(__name__)
 
 
 class _LLMCache:
-    """Simple TTL cache for LLM results to avoid redundant calls."""
+    """
+    Simple TTL cache for LLM results to avoid redundant calls.
+    """
     def __init__(self, ttl_seconds: int = 300):
+        """
+        Initialize the LLM cache.
+
+        Parameters
+        ----------
+        ttl_seconds : int, optional
+            Time-to-live for cache entries in seconds. Default is 300.
+        """
         self._cache: Dict[str, Any] = {}
         self._ttl = ttl_seconds
 
@@ -25,6 +35,21 @@ class _LLMCache:
         return hashlib.sha256(proposition.strip().lower().encode()).hexdigest()[:16]
 
     def get(self, proposition: str, field: str):
+        """
+        Retrieve a cached value for a given proposition and field.
+
+        Parameters
+        ----------
+        proposition : str
+            The proposition to look up.
+        field : str
+            The specific field or result type to retrieve.
+
+        Returns
+        -------
+        Any or None
+            The cached value if present and valid, otherwise None.
+        """
         key = f"{self._key(proposition)}:{field}"
         entry = self._cache.get(key)
         if entry and (time.time() - entry['ts']) < self._ttl:
@@ -33,22 +58,55 @@ class _LLMCache:
         return None
 
     def set(self, proposition: str, field: str, value):
+        """
+        Set a cache entry for a given proposition and field.
+
+        Parameters
+        ----------
+        proposition : str
+            The proposition to cache the value for.
+        field : str
+            The specific field or result type.
+        value : Any
+            The value to store in the cache.
+        """
         key = f"{self._key(proposition)}:{field}"
         self._cache[key] = {'value': value, 'ts': time.time()}
 
 
 class _LLMUsageTracker:
-    """Tracks LLM API calls per minute for budget enforcement."""
+    """
+    Tracks LLM API calls per minute for budget enforcement.
+    """
     def __init__(self, max_per_minute: int = 10):
+        """
+        Initialize the LLM usage tracker.
+
+        Parameters
+        ----------
+        max_per_minute : int, optional
+            The maximum number of allowed API calls per minute. Default is 10.
+        """
         self.max_per_minute = max_per_minute
         self._calls: List[float] = []
         self.total_calls = 0
 
     def can_call(self) -> bool:
+        """
+        Check if an LLM API call can be made based on the budget.
+
+        Returns
+        -------
+        bool
+            True if the call is permitted, False otherwise.
+        """
         self._prune()
         return len(self._calls) < self.max_per_minute
 
     def record(self):
+        """
+        Record a new LLM API call.
+        """
         self._calls.append(time.time())
         self.total_calls += 1
 
@@ -57,10 +115,26 @@ class _LLMUsageTracker:
         self._calls = [t for t in self._calls if t > cutoff]
 
     def calls_this_minute(self) -> int:
+        """
+        Get the number of API calls made in the last minute.
+
+        Returns
+        -------
+        int
+            The number of calls made in the last minute.
+        """
         self._prune()
         return len(self._calls)
 
     def remaining(self) -> int:
+        """
+        Get the number of remaining API calls allowed in the current minute.
+
+        Returns
+        -------
+        int
+            The number of remaining allowed calls.
+        """
         self._prune()
         return max(0, self.max_per_minute - len(self._calls))
 
@@ -88,6 +162,20 @@ class AxonMemory:
         embedding_engine: Optional[BaseEmbeddingEngine] = None,
         llm_engine: Optional[BaseLLMEngine] = None
     ):
+        """
+        Initialize the AxonMemory orchestrator.
+
+        Parameters
+        ----------
+        db_path : str, optional
+            Path to the SQLite database file, by default "~/.axon/memory.db".
+        storage_engine : Optional[BaseStorageLayer], optional
+            A custom storage layer instance. If None, uses SQLite or Neo4j based on environment variables.
+        embedding_engine : Optional[BaseEmbeddingEngine], optional
+            A custom embedding engine instance. If None, defaults to EmbeddingEngine.
+        llm_engine : Optional[BaseLLMEngine], optional
+            A custom LLM engine instance. If None, defaults to GeminiLLM if API key is present.
+        """
         if storage_engine:
             self.storage = storage_engine
         else:
@@ -118,6 +206,21 @@ class AxonMemory:
         self._llm_usage = _LLMUsageTracker(max_per_minute=max_rpm)
 
     def _get_or_create_hub(self, theme: str, scope: str) -> str:
+        """
+        Get an existing hub node by theme or create a new one.
+
+        Parameters
+        ----------
+        theme : str
+            The theme or category representing the hub.
+        scope : str
+            The scope or vault the hub belongs to.
+
+        Returns
+        -------
+        str
+            The UUID of the hub node.
+        """
         # Search for existing hub via storage interface (no raw SQL)
         existing = self.storage.get_belief_by_proposition(theme, scope, 'hub')
         if existing:
@@ -138,7 +241,19 @@ class AxonMemory:
         return hub.id
 
     def _decay_confidence(self, belief: Belief) -> float:
-        r"""Calculate the current confidence of a belief after exponential decay."""
+        r"""
+        Calculate the current confidence of a belief after exponential decay.
+
+        Parameters
+        ----------
+        belief : Belief
+            The belief to calculate decayed confidence for.
+
+        Returns
+        -------
+        float
+            The decayed confidence value (0.0 to 1.0).
+        """
         if belief.status != "active":
             return belief.confidence
 
@@ -153,7 +268,23 @@ class AxonMemory:
         return decayed_confidence
 
     def _llm_call(self, fn, *args, **kwargs):
-        """Wrapper that tracks LLM usage and enforces budget."""
+        """
+        Wrapper that tracks LLM usage and enforces budget.
+
+        Parameters
+        ----------
+        fn : callable
+            The LLM function to execute.
+        *args
+            Positional arguments for the function.
+        **kwargs
+            Keyword arguments for the function.
+
+        Returns
+        -------
+        Any or None
+            The result of the LLM call, or None if budget is exceeded.
+        """
         if not self._llm_usage.can_call():
             logger.warning("LLM budget exceeded, skipping call")
             return None
@@ -185,20 +316,30 @@ class AxonMemory:
         6. **Classify relationships** via LLM (or distance fallback).
         7. **Persist** the belief, embedding, and an audit trace.
 
-        Args:
-            proposition: The textual claim to store.
-            scope: Namespace / vault name.  Defaults to ``"global"``.
-            source: Origin of the belief.
-            evidence: Free-text evidence supporting the proposition.
-            tags: Optional list of string tags for manual categorisation.
-            confidence: Explicit confidence override (``0.0`` – ``1.0``).
-            half_life_hrs: Half-life in hours for exponential confidence decay.
-            hub_override: Optional hub name to force assignment to.
+        Parameters
+        ----------
+        proposition : str
+            The textual claim to store.
+        scope : str, optional
+            Namespace / vault name. Defaults to ``"global"``.
+        source : {"user_explicit", "agent_inferred", "tool_result"}, optional
+            Origin of the belief. Defaults to ``"user_explicit"``.
+        evidence : str, optional
+            Free-text evidence supporting the proposition.
+        tags : list of str, optional
+            Optional list of string tags for manual categorisation.
+        confidence : float, optional
+            Explicit confidence override (``0.0`` – ``1.0``).
+        half_life_hrs : float, optional
+            Half-life in hours for exponential confidence decay. Defaults to 720.0.
+        hub_override : str, optional
+            Optional hub name to force assignment to.
+        fast_mode : bool, optional
+            If True, skip LLM calls and use keyword-only classification for maximum speed.
 
-            fast_mode: If True, skip LLM calls and use keyword-only
-                classification for maximum speed.
-
-        Returns:
+        Returns
+        -------
+        Belief
             The saved (or reinforced) Belief instance.
         """
         if tags is None:
@@ -405,10 +546,24 @@ class AxonMemory:
             return new_belief
 
     def search(self, query: str, scope: str = "global", top_k: int = 5, node_types: List[str] = None) -> List[Belief]:
-        """Search for beliefs matching the query with composite ranking.
+        """
+        Search for beliefs matching the query with composite ranking.
         
-        Args:
-            node_types: Filter by node types. Defaults to ['belief', 'synthesis'] (no hubs).
+        Parameters
+        ----------
+        query : str
+            The search query string.
+        scope : str, optional
+            Namespace / vault name. Defaults to "global".
+        top_k : int, optional
+            Number of top results to return. Defaults to 5.
+        node_types : list of str, optional
+            Filter by node types. Defaults to ['belief', 'synthesis'] (no hubs).
+
+        Returns
+        -------
+        list of Belief
+            List of matching Belief objects, ranked by composite score.
         """
         emb = self.embeddings.embed(query)
         results = self.storage.search_similar(
@@ -432,10 +587,25 @@ class AxonMemory:
         scope: str = "global",
         fast_mode: bool = False
     ) -> List[Belief]:
-        """Ingest multiple beliefs in a single call with shared LLM context.
+        """
+        Ingest multiple beliefs in a single call with shared LLM context.
         
-        Uses fast_mode by default for batch operations. Each item in beliefs_data
-        should have: proposition, source_type, evidence (optional), tags (optional).
+        Uses fast_mode by default for batch operations.
+
+        Parameters
+        ----------
+        beliefs_data : list of dict
+            List of belief data dictionaries. Each item should have:
+            proposition, source_type, evidence (optional), tags (optional).
+        scope : str, optional
+            Namespace / vault name. Defaults to "global".
+        fast_mode : bool, optional
+            If True, skip LLM calls for classification. Defaults to False.
+
+        Returns
+        -------
+        list of Belief
+            List of ingested or reinforced Belief instances.
         """
         results = []
         for item in beliefs_data:
@@ -452,7 +622,15 @@ class AxonMemory:
         return results
 
     def get_usage_stats(self) -> dict:
-        """Return LLM usage statistics."""
+        """
+        Return LLM usage statistics.
+
+        Returns
+        -------
+        dict
+            Dictionary containing LLM usage statistics like calls this minute,
+            total calls, remaining calls, max per minute, and cache entries.
+        """
         return {
             "llm_calls_this_minute": self._llm_usage.calls_this_minute(),
             "llm_calls_total": self._llm_usage.total_calls,
@@ -462,7 +640,21 @@ class AxonMemory:
         }
 
     def resolve_conflict(self, conflict_id: str, resolution: Literal["resolved_a", "resolved_b"]):
-        """Resolves a conflict, marking the loser as deprecated and cleaning up graph edges."""
+        """
+        Resolves a conflict, marking the loser as deprecated and cleaning up graph edges.
+
+        Parameters
+        ----------
+        conflict_id : str
+            The ID of the conflict to resolve.
+        resolution : {"resolved_a", "resolved_b"}
+            Which belief to mark as the winner.
+
+        Raises
+        ------
+        ValueError
+            If the conflict is not found.
+        """
         conflict = self.storage.get_conflict(conflict_id)
         if not conflict:
             raise ValueError("Conflict not found")
@@ -479,7 +671,26 @@ class AxonMemory:
         self.storage.save_trace(trace_l)
 
     def merge_conflict(self, conflict_id: str, merged_proposition: str) -> Belief:
-        """Resolve a conflict by merging both beliefs into a new one."""
+        """
+        Resolve a conflict by merging both beliefs into a new one.
+
+        Parameters
+        ----------
+        conflict_id : str
+            The ID of the conflict to merge.
+        merged_proposition : str
+            The new proposition text for the merged belief.
+
+        Returns
+        -------
+        Belief
+            The newly created merged Belief instance.
+
+        Raises
+        ------
+        ValueError
+            If the conflict or one of the original beliefs is not found.
+        """
         conflict = self.storage.get_conflict(conflict_id)
         if not conflict:
             raise ValueError("Conflict not found")
@@ -521,7 +732,23 @@ class AxonMemory:
         return merged
 
     def _try_auto_resolve(self, conflict: Conflict, belief_a: Belief, belief_b: Belief) -> bool:
-        """Try to auto-resolve a conflict using policies. Returns True if resolved."""
+        """
+        Try to auto-resolve a conflict using policies.
+
+        Parameters
+        ----------
+        conflict : Conflict
+            The conflict instance to resolve.
+        belief_a : Belief
+            The first conflicting belief.
+        belief_b : Belief
+            The second conflicting belief.
+
+        Returns
+        -------
+        bool
+            True if the conflict was auto-resolved, False otherwise.
+        """
         # Policy 1: Source priority (user_explicit > tool_result > agent_inferred)
         source_priority = {'user_explicit': 3, 'tool_result': 2, 'agent_inferred': 1}
         pa = source_priority.get(belief_a.source_type, 0)
@@ -568,7 +795,22 @@ class AxonMemory:
         return False
 
     def update_belief(self, belief_id: str, updates: dict) -> Optional[Belief]:
-        """Update specific fields on an existing belief."""
+        """
+        Update specific fields on an existing belief.
+
+        Parameters
+        ----------
+        belief_id : str
+            The ID of the belief to update.
+        updates : dict
+            Dictionary of fields to update. Allowed fields are:
+            proposition, confidence, tags, source_ref, half_life_hrs, importance, status.
+
+        Returns
+        -------
+        Optional[Belief]
+            The updated Belief instance, or None if the belief was not found.
+        """
         existing = self.storage.get_belief(belief_id)
         if not existing:
             return None
@@ -599,7 +841,19 @@ class AxonMemory:
         return self.storage.get_belief(belief_id)
 
     def delete_belief(self, belief_id: str) -> bool:
-        """Delete a belief and all its associated data."""
+        """
+        Delete a belief and all its associated data.
+
+        Parameters
+        ----------
+        belief_id : str
+            The ID of the belief to delete.
+
+        Returns
+        -------
+        bool
+            True if the belief was deleted, False if it was not found.
+        """
         existing = self.storage.get_belief(belief_id)
         if not existing:
             return False
@@ -607,24 +861,54 @@ class AxonMemory:
         return True
 
     def get_beliefs(self, scope: str = "global") -> List[Belief]:
-        """Get all beliefs for a scope, applying decay."""
+        """
+        Get all beliefs for a scope, applying decay.
+
+        Parameters
+        ----------
+        scope : str, optional
+            Namespace / vault name. Defaults to "global".
+
+        Returns
+        -------
+        list of Belief
+            List of Belief instances in the given scope.
+        """
         beliefs = self.storage.get_beliefs_by_scope(scope)
         for b in beliefs:
             b.confidence = self._decay_confidence(b)
         return beliefs
 
     def get_conflicts(self, scope: str = "global") -> List[Conflict]:
-        """Get all pending conflicts for a scope."""
+        """
+        Get all pending conflicts for a scope.
+
+        Parameters
+        ----------
+        scope : str, optional
+            Namespace / vault name. Defaults to "global".
+
+        Returns
+        -------
+        list of Conflict
+            List of Conflict instances in the given scope.
+        """
         return self.storage.get_conflicts_by_scope(scope)
 
     def consolidate(self, scope: str = "global"):
-        """Run periodic memory consolidation for a given scope.
+        """
+        Run periodic memory consolidation for a given scope.
 
         Consolidation performs:
         0. Auto-deprecates beliefs with decayed confidence < 5%
         1. Groups all active beliefs by hub
         2. Deep-scans for contradictions within each cluster
         3. Generates synthesis nodes for clusters with 2+ beliefs
+
+        Parameters
+        ----------
+        scope : str, optional
+            Namespace / vault name. Defaults to "global".
         """
         logger.info(f"Starting memory consolidation for scope: {scope}")
         all_beliefs = self.storage.get_beliefs_by_scope(scope)

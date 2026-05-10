@@ -38,7 +38,21 @@ class GeminiLLM(BaseLLMEngine):
         self.client = genai.Client(api_key=self.api_key)
 
     def _retry_generate_content(self, *args, **kwargs):
-        """Helper to retry API calls on 429 Rate Limit Exhausted."""
+        """
+        Helper to retry API calls on 429 Rate Limit Exhausted.
+
+        Parameters
+        ----------
+        *args
+            Positional arguments for generate_content.
+        **kwargs
+            Keyword arguments for generate_content.
+
+        Returns
+        -------
+        Any
+            The response from generate_content.
+        """
         import time
         max_retries = 3
         for attempt in range(max_retries):
@@ -275,6 +289,18 @@ class GeminiLLM(BaseLLMEngine):
     def explain_conflict(self, proposition_a: str, proposition_b: str) -> str:
         """
         Generate a brief explanation of why two beliefs conflict using Gemini.
+
+        Parameters
+        ----------
+        proposition_a : str
+            The first proposition.
+        proposition_b : str
+            The second proposition.
+
+        Returns
+        -------
+        str
+            A concise explanation of the contradiction.
         """
         prompt = f"""
         Explain in one concise sentence why these two beliefs contradict each other:

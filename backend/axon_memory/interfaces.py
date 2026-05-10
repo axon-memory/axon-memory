@@ -167,46 +167,121 @@ class BaseStorageLayer(ABC):
 
     @abstractmethod
     def save_belief(self, belief: Belief, embedding: List[float]):
-        """Save a belief and its embedding vector."""
+        """
+        Save a belief and its embedding vector.
+
+        Parameters
+        ----------
+        belief : Belief
+            The belief to save.
+        embedding : list of float
+            The embedding vector.
+        """
         pass
 
     @abstractmethod
     def get_belief(self, belief_id: str) -> Optional[Belief]:
-        """Retrieve a belief by its ID."""
+        """
+        Retrieve a belief by its ID.
+
+        Parameters
+        ----------
+        belief_id : str
+            The ID of the belief.
+
+        Returns
+        -------
+        Optional[Belief]
+            The Belief object if found.
+        """
         pass
 
     @abstractmethod
     def get_beliefs_by_scope(self, scope: str) -> List[Belief]:
-        """Retrieve all beliefs within a given scope."""
+        """
+        Retrieve all beliefs within a given scope.
+
+        Parameters
+        ----------
+        scope : str
+            The scope to retrieve beliefs from.
+
+        Returns
+        -------
+        list of Belief
+            List of beliefs in the scope.
+        """
         pass
 
     @abstractmethod
     def get_belief_by_proposition(self, proposition: str, scope: str, node_type: str = "hub") -> Optional[Belief]:
-        """Find a belief by exact proposition match within a scope and node type."""
+        """
+        Find a belief by exact proposition match within a scope and node type.
+
+        Parameters
+        ----------
+        proposition : str
+            The exact proposition to find.
+        scope : str
+            The scope to search in.
+        node_type : str, optional
+            The type of node, by default "hub".
+
+        Returns
+        -------
+        Optional[Belief]
+            The matching Belief object if found.
+        """
         pass
 
     @abstractmethod
     def update_belief_fields(self, belief_id: str, updates: dict):
-        """Update specific fields on a belief without requiring a full re-embed."""
+        """
+        Update specific fields on a belief without requiring a full re-embed.
+
+        Parameters
+        ----------
+        belief_id : str
+            The ID of the belief.
+        updates : dict
+            The fields to update.
+        """
         pass
 
     @abstractmethod
     def delete_belief(self, belief_id: str):
-        """Delete a belief and all its associated data (conflicts, traces, embeddings)."""
+        """
+        Delete a belief and all its associated data (conflicts, traces, embeddings).
+
+        Parameters
+        ----------
+        belief_id : str
+            The ID of the belief to delete.
+        """
         pass
 
     # ── Vector Search ──────────────────────────────────────────
 
     @abstractmethod
     def search_similar(self, embedding: List[float], scope: str, top_k: int = 5, node_types: List[str] = None) -> List[Tuple[Belief, float]]:
-        """Search for beliefs similar to a given embedding.
+        """
+        Search for beliefs similar to a given embedding.
         
-        Args:
-            embedding: The query embedding vector.
-            scope: The scope to restrict the search to.
-            top_k: Maximum number of results to return.
-            node_types: Filter by node types (e.g., ['belief', 'synthesis']). 
-                        Defaults to ['belief', 'synthesis'] to exclude hubs.
+        Parameters
+        ----------
+        embedding : list of float
+            The query embedding vector.
+        scope : str
+            The scope to restrict the search to.
+        top_k : int, optional
+            Maximum number of results to return.
+        node_types : list of str, optional
+            Filter by node types (e.g., ['belief', 'synthesis']). Defaults to ['belief', 'synthesis'] to exclude hubs.
+
+        Returns
+        -------
+        list of tuple of (Belief, float)
+            List of matching Beliefs and their distances.
         """
         pass
 
@@ -214,28 +289,67 @@ class BaseStorageLayer(ABC):
 
     @abstractmethod
     def save_conflict(self, conflict: Conflict):
-        """Save a detected conflict."""
+        """
+        Save a detected conflict.
+
+        Parameters
+        ----------
+        conflict : Conflict
+            The conflict to save.
+        """
         pass
 
     @abstractmethod
     def get_conflict(self, conflict_id: str) -> Optional[Conflict]:
-        """Retrieve a conflict by its ID."""
+        """
+        Retrieve a conflict by its ID.
+
+        Parameters
+        ----------
+        conflict_id : str
+            The ID of the conflict.
+
+        Returns
+        -------
+        Optional[Conflict]
+            The Conflict object if found.
+        """
         pass
 
     @abstractmethod
     def get_conflicts_by_scope(self, scope: str, status: str = "pending") -> List[Conflict]:
-        """Retrieve all conflicts within a scope filtered by status."""
+        """
+        Retrieve all conflicts within a scope filtered by status.
+
+        Parameters
+        ----------
+        scope : str
+            The scope to retrieve conflicts from.
+        status : str, optional
+            The status to filter by, default "pending".
+
+        Returns
+        -------
+        list of Conflict
+            List of matching conflicts.
+        """
         pass
 
     @abstractmethod
     def resolve_conflict(self, conflict_id: str, resolution: str, winner_id: str, loser_id: str):
-        """Resolve a conflict: update status, deprecate loser, clean edges.
+        """
+        Resolve a conflict: update status, deprecate loser, clean edges.
         
-        Args:
-            conflict_id: The conflict to resolve.
-            resolution: The resolution type (resolved_a, resolved_b, resolved_auto, resolved_merge).
-            winner_id: The belief ID that wins (kept active).
-            loser_id: The belief ID that loses (deprecated).
+        Parameters
+        ----------
+        conflict_id : str
+            The conflict to resolve.
+        resolution : str
+            The resolution type (resolved_a, resolved_b, resolved_auto, resolved_merge).
+        winner_id : str
+            The belief ID that wins (kept active).
+        loser_id : str
+            The belief ID that loses (deprecated).
         """
         pass
 
@@ -243,34 +357,98 @@ class BaseStorageLayer(ABC):
 
     @abstractmethod
     def save_trace(self, trace: Trace):
-        """Save an audit trace."""
+        """
+        Save an audit trace.
+
+        Parameters
+        ----------
+        trace : Trace
+            The trace to save.
+        """
         pass
 
     @abstractmethod
     def get_traces_by_belief(self, belief_id: str) -> List[Trace]:
-        """Retrieve all traces for a specific belief."""
+        """
+        Retrieve all traces for a specific belief.
+
+        Parameters
+        ----------
+        belief_id : str
+            The ID of the belief.
+
+        Returns
+        -------
+        list of Trace
+            List of traces associated with the belief.
+        """
         pass
 
     @abstractmethod
     def get_traces_by_scope(self, scope: str, limit: int = 20) -> List[Trace]:
-        """Retrieve recent traces across a scope, ordered by timestamp descending."""
+        """
+        Retrieve recent traces across a scope, ordered by timestamp descending.
+
+        Parameters
+        ----------
+        scope : str
+            The scope to retrieve traces from.
+        limit : int, optional
+            Maximum number of traces to return, default 20.
+
+        Returns
+        -------
+        list of Trace
+            List of recent traces.
+        """
         pass
 
     # ── Vault CRUD ─────────────────────────────────────────────
 
     @abstractmethod
     def create_vault(self, vault) -> "Vault":
-        """Create a new vault."""
+        """
+        Create a new vault.
+
+        Parameters
+        ----------
+        vault : Vault
+            The vault to create.
+
+        Returns
+        -------
+        Vault
+            The created vault.
+        """
         pass
 
     @abstractmethod
     def get_vaults(self) -> list:
-        """Get all vaults."""
+        """
+        Get all vaults.
+
+        Returns
+        -------
+        list
+            List of all vaults.
+        """
         pass
 
     @abstractmethod
     def get_vault(self, vault_id: str):
-        """Get a vault by ID."""
+        """
+        Get a vault by ID.
+
+        Parameters
+        ----------
+        vault_id : str
+            The ID of the vault.
+
+        Returns
+        -------
+        Optional[Vault]
+            The vault if found, otherwise None.
+        """
         pass
 
     @abstractmethod

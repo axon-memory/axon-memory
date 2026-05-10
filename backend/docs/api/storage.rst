@@ -22,3 +22,18 @@ vector search via ``sqlite-vec`` virtual tables.
    :undoc-members:
    :show-inheritance:
    :private-members: _get_connection, _init_db, _row_to_belief, _row_to_vault
+
+---------
+
+``axon_memory.neo4j_storage`` — Neo4j Storage Layer
+===================================================
+
+An alternative storage implementation using a Neo4j graph database. Manages graph
+edges naturally and utilizes Neo4j's vector indexes for similarity search.
+
+.. automodule:: axon_memory.neo4j_storage
+   :members:
+   :undoc-members:
+   :show-inheritance:
+   :private-members: _init_schema, _dict_to_belief, _fetch_belief_query
+

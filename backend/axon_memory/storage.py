@@ -10,7 +10,20 @@ from axon_memory.interfaces import BaseStorageLayer
 logger = logging.getLogger(__name__)
 
 class StorageLayer(BaseStorageLayer):
+    """
+    SQLite-based storage layer with vector search capabilities.
+    """
     def __init__(self, db_path: str = "~/.axon/memory.db", embedding_dim: int = 768):
+        """
+        Initialize the SQLite storage layer.
+
+        Parameters
+        ----------
+        db_path : str, optional
+            Path to the SQLite database file, by default "~/.axon/memory.db".
+        embedding_dim : int, optional
+            Dimension of the embedding vectors, by default 768.
+        """
         path = Path(db_path).expanduser()
         path.parent.mkdir(parents=True, exist_ok=True)
         self.db_path = str(path)
@@ -102,6 +115,19 @@ class StorageLayer(BaseStorageLayer):
     # ── Vault CRUD ──────────────────────────────────────────
 
     def create_vault(self, vault: "Vault") -> "Vault":
+        """
+        Create a new vault in the database.
+
+        Parameters
+        ----------
+        vault : Vault
+            The vault model to insert.
+
+        Returns
+        -------
+        Vault
+            The inserted vault model.
+        """
         with self._get_connection() as conn:
             conn.execute(
                 "INSERT INTO vaults (id, name, description, created_at, updated_at) VALUES (?,?,?,?,?)",
@@ -111,21 +137,67 @@ class StorageLayer(BaseStorageLayer):
         return vault
 
     def get_vaults(self) -> List["Vault"]:
+        """
+        Retrieve all vaults, ordered by creation time.
+
+        Returns
+        -------
+        list of Vault
+            A list of all Vault models.
+        """
         with self._get_connection() as conn:
             rows = conn.execute("SELECT * FROM vaults ORDER BY created_at ASC").fetchall()
             return [self._row_to_vault(r) for r in rows]
 
     def get_vault(self, vault_id: str) -> Optional["Vault"]:
+        """
+        Retrieve a vault by its ID.
+
+        Parameters
+        ----------
+        vault_id : str
+            The UUID of the vault.
+
+        Returns
+        -------
+        Optional[Vault]
+            The Vault model if found, else None.
+        """
         with self._get_connection() as conn:
             row = conn.execute("SELECT * FROM vaults WHERE id = ?", (vault_id,)).fetchone()
             return self._row_to_vault(row) if row else None
 
     def get_vault_by_name(self, name: str) -> Optional["Vault"]:
+        """
+        Retrieve a vault by its name.
+
+        Parameters
+        ----------
+        name : str
+            The unique name of the vault.
+
+        Returns
+        -------
+        Optional[Vault]
+            The Vault model if found, else None.
+        """
         with self._get_connection() as conn:
             row = conn.execute("SELECT * FROM vaults WHERE name = ?", (name,)).fetchone()
             return self._row_to_vault(row) if row else None
 
     def update_vault(self, vault_id: str, name: Optional[str], description: Optional[str]):
+        """
+        Update the name or description of an existing vault.
+
+        Parameters
+        ----------
+        vault_id : str
+            The UUID of the vault to update.
+        name : Optional[str]
+            The new name for the vault, if any.
+        description : Optional[str]
+            The new description for the vault, if any.
+        """
         from axon_memory.models import utc_now
         with self._get_connection() as conn:
             if name:
@@ -135,6 +207,14 @@ class StorageLayer(BaseStorageLayer):
             conn.commit()
 
     def delete_vault(self, vault_id: str):
+        """
+        Delete a vault and cascade delete all associated beliefs and conflicts.
+
+        Parameters
+        ----------
+        vault_id : str
+            The UUID of the vault to delete.
+        """
         vault = self.get_vault(vault_id)
         if not vault:
             return
@@ -153,6 +233,16 @@ class StorageLayer(BaseStorageLayer):
     # ── Belief CRUD ─────────────────────────────────────────
 
     def save_belief(self, belief: Belief, embedding: List[float]):
+        """
+        Save a belief and its embedding to the database.
+
+        Parameters
+        ----------
+        belief : Belief
+            The belief to save or update.
+        embedding : list of float
+            The dense vector embedding representing the belief's proposition.
+        """
         with self._get_connection() as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO beliefs (
@@ -178,6 +268,14 @@ class StorageLayer(BaseStorageLayer):
             conn.commit()
 
     def delete_belief(self, belief_id: str):
+        """
+        Delete a belief, its embedding, and related edges (conflicts and traces).
+
+        Parameters
+        ----------
+        belief_id : str
+            The ID of the belief to delete.
+        """
         with self._get_connection() as conn:
             conn.execute("DELETE FROM beliefs WHERE id = ?", (belief_id,))
             conn.execute("DELETE FROM vec_beliefs WHERE id = ?", (belief_id,))
@@ -188,7 +286,16 @@ class StorageLayer(BaseStorageLayer):
             conn.commit()
 
     def update_belief_fields(self, belief_id: str, updates: dict):
-        """Update specific fields on a belief without requiring a full re-embed."""
+        """
+        Update specific fields on a belief without requiring a full re-embed.
+
+        Parameters
+        ----------
+        belief_id : str
+            The ID of the belief to update.
+        updates : dict
+            Dictionary containing the fields to update.
+        """
         from axon_memory.models import utc_now
         with self._get_connection() as conn:
             # Fields that need JSON serialization
@@ -209,6 +316,14 @@ class StorageLayer(BaseStorageLayer):
             conn.commit()
 
     def save_conflict(self, conflict: Conflict):
+        """
+        Save a conflict edge between two beliefs.
+
+        Parameters
+        ----------
+        conflict : Conflict
+            The conflict object to save.
+        """
         with self._get_connection() as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO conflicts (
@@ -222,6 +337,14 @@ class StorageLayer(BaseStorageLayer):
             conn.commit()
 
     def save_trace(self, trace: Trace):
+        """
+        Save an audit trace for a belief action.
+
+        Parameters
+        ----------
+        trace : Trace
+            The trace object to save.
+        """
         with self._get_connection() as conn:
             conn.execute("""
                 INSERT INTO traces (id, belief_id, action, timestamp, details)
@@ -230,16 +353,57 @@ class StorageLayer(BaseStorageLayer):
             conn.commit()
 
     def get_belief(self, belief_id: str) -> Optional[Belief]:
+        """
+        Retrieve a belief by its ID.
+
+        Parameters
+        ----------
+        belief_id : str
+            The ID of the belief to retrieve.
+
+        Returns
+        -------
+        Optional[Belief]
+            The Belief object if found, else None.
+        """
         with self._get_connection() as conn:
             row = conn.execute("SELECT * FROM beliefs WHERE id = ?", (belief_id,)).fetchone()
             return self._row_to_belief(row) if row else None
 
     def get_beliefs_by_scope(self, scope: str) -> List[Belief]:
+        """
+        Retrieve all beliefs within a specific scope.
+
+        Parameters
+        ----------
+        scope : str
+            The scope or vault name.
+
+        Returns
+        -------
+        list of Belief
+            List of beliefs in the specified scope.
+        """
         with self._get_connection() as conn:
             rows = conn.execute("SELECT * FROM beliefs WHERE scope = ?", (scope,)).fetchall()
             return [self._row_to_belief(row) for row in rows]
 
     def get_conflicts_by_scope(self, scope: str, status: str = "pending") -> List[Conflict]:
+        """
+        Retrieve all conflicts for a specific scope and status.
+
+        Parameters
+        ----------
+        scope : str
+            The scope or vault name.
+        status : str, optional
+            The status of the conflicts to filter by. Defaults to "pending".
+
+        Returns
+        -------
+        list of Conflict
+            List of Conflict objects matching the criteria.
+        """
         with self._get_connection() as conn:
             rows = conn.execute(
                 "SELECT * FROM conflicts WHERE scope = ? AND status = ?",
@@ -248,10 +412,24 @@ class StorageLayer(BaseStorageLayer):
             return [self._row_to_conflict(row) for row in rows]
 
     def search_similar(self, embedding: List[float], scope: str, top_k: int = 5, node_types: List[str] = None) -> List[Tuple[Belief, float]]:
-        """Search for beliefs semantically similar to a given embedding vector.
+        """
+        Search for beliefs semantically similar to a given embedding vector.
         
-        Args:
-            node_types: Filter by node types. Defaults to ['belief', 'synthesis'] to exclude hubs.
+        Parameters
+        ----------
+        embedding : list of float
+            The query embedding vector.
+        scope : str
+            The scope or vault name to search within.
+        top_k : int, optional
+            Maximum number of results to return. Defaults to 5.
+        node_types : list of str, optional
+            Filter by node types. Defaults to ['belief', 'synthesis'] to exclude hubs.
+
+        Returns
+        -------
+        list of tuple of (Belief, float)
+            A list of tuples containing the matching Belief and its L2 distance score.
         """
         if node_types is None:
             node_types = ['belief', 'synthesis']
@@ -292,7 +470,23 @@ class StorageLayer(BaseStorageLayer):
     # ── New methods for storage abstraction ─────────────────
 
     def get_belief_by_proposition(self, proposition: str, scope: str, node_type: str = "hub") -> Optional[Belief]:
-        """Find a belief by exact proposition match within a scope and node type."""
+        """
+        Find a belief by exact proposition match within a scope and node type.
+
+        Parameters
+        ----------
+        proposition : str
+            The exact text of the proposition to match.
+        scope : str
+            The scope or vault name.
+        node_type : str, optional
+            The type of node to look for. Defaults to "hub".
+
+        Returns
+        -------
+        Optional[Belief]
+            The Belief object if an exact match is found, else None.
+        """
         with self._get_connection() as conn:
             row = conn.execute(
                 "SELECT * FROM beliefs WHERE proposition = ? AND scope = ? AND node_type = ?",
@@ -301,13 +495,38 @@ class StorageLayer(BaseStorageLayer):
             return self._row_to_belief(row) if row else None
 
     def get_conflict(self, conflict_id: str) -> Optional[Conflict]:
-        """Retrieve a conflict by its ID."""
+        """
+        Retrieve a conflict by its ID.
+
+        Parameters
+        ----------
+        conflict_id : str
+            The ID of the conflict to retrieve.
+
+        Returns
+        -------
+        Optional[Conflict]
+            The Conflict object if found, else None.
+        """
         with self._get_connection() as conn:
             row = conn.execute("SELECT * FROM conflicts WHERE id = ?", (conflict_id,)).fetchone()
             return self._row_to_conflict(row) if row else None
 
     def resolve_conflict(self, conflict_id: str, resolution: str, winner_id: str, loser_id: str):
-        """Resolve a conflict: update status, deprecate loser, clean conflicts_with edges."""
+        """
+        Resolve a conflict: update status, deprecate loser, clean conflicts_with edges.
+
+        Parameters
+        ----------
+        conflict_id : str
+            The ID of the conflict being resolved.
+        resolution : str
+            The resolution status to apply (e.g., 'resolved_a').
+        winner_id : str
+            The ID of the belief that won the conflict.
+        loser_id : str
+            The ID of the belief that lost and should be deprecated.
+        """
         from axon_memory.models import utc_now
         with self._get_connection() as conn:
             # Update conflict status
@@ -330,7 +549,19 @@ class StorageLayer(BaseStorageLayer):
             conn.commit()
 
     def get_traces_by_belief(self, belief_id: str) -> List[Trace]:
-        """Retrieve all traces for a specific belief."""
+        """
+        Retrieve all traces for a specific belief.
+
+        Parameters
+        ----------
+        belief_id : str
+            The ID of the belief.
+
+        Returns
+        -------
+        list of Trace
+            A list of traces associated with the belief, ordered by timestamp.
+        """
         with self._get_connection() as conn:
             rows = conn.execute(
                 "SELECT * FROM traces WHERE belief_id = ? ORDER BY timestamp ASC",
@@ -339,7 +570,21 @@ class StorageLayer(BaseStorageLayer):
             return [Trace(**dict(r)) for r in rows]
 
     def get_traces_by_scope(self, scope: str, limit: int = 20) -> List[Trace]:
-        """Retrieve recent traces across a scope, joining with beliefs to filter by scope."""
+        """
+        Retrieve recent traces across a scope, joining with beliefs to filter by scope.
+
+        Parameters
+        ----------
+        scope : str
+            The scope or vault name.
+        limit : int, optional
+            The maximum number of traces to retrieve. Defaults to 20.
+
+        Returns
+        -------
+        list of Trace
+            A list of the most recent traces in the scope.
+        """
         with self._get_connection() as conn:
             rows = conn.execute("""
                 SELECT t.* FROM traces t
@@ -351,7 +596,19 @@ class StorageLayer(BaseStorageLayer):
             return [Trace(**dict(r)) for r in rows]
 
     def export_scope(self, scope: str) -> dict:
-        """Export all data for a scope as a JSON-serializable dict."""
+        """
+        Export all data for a scope as a JSON-serializable dict.
+
+        Parameters
+        ----------
+        scope : str
+            The scope or vault name to export.
+
+        Returns
+        -------
+        dict
+            A dictionary containing versions, scope, beliefs, conflicts, and traces.
+        """
         beliefs = self.get_beliefs_by_scope(scope)
         conflicts = self.get_conflicts_by_scope(scope, status="pending")
         # Also get resolved conflicts
@@ -376,7 +633,16 @@ class StorageLayer(BaseStorageLayer):
         }
 
     def import_scope(self, data: dict, scope: str):
-        """Import beliefs, conflicts, and traces from an export dict."""
+        """
+        Import beliefs, conflicts, and traces from an export dict.
+
+        Parameters
+        ----------
+        data : dict
+            The dictionary containing exported scope data.
+        scope : str
+            The scope or vault name to import the data into.
+        """
         from axon_memory.models import utc_now
         
         # Import beliefs
